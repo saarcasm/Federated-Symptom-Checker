@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FedHealth — Privacy-Preserving Symptom Checker</title>
+    <meta name="description" content="A premium privacy-preserving federated learning health AI symptom checker.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <!-- Background Elements -->
+    <div class="bg-gradient-1"></div>
+    <div class="bg-gradient-2"></div>
+
+    <!-- Navigation -->
+    <nav class="navbar glass">
+        <div class="nav-content">
+            <div class="logo">
+                <div class="logo-glow"></div>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L22 7L12 12L2 7L12 2Z" fill="url(#paint0_linear)"/>
+                    <path d="M2 17L12 22L22 17" stroke="url(#paint1_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 12L12 17L22 12" stroke="url(#paint2_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <defs>
+                        <linearGradient id="paint0_linear" x1="2" y1="7" x2="22" y2="7" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#00D4AA"/>
+                            <stop offset="1" stop-color="#00B4D8"/>
+                        </linearGradient>
+                        <linearGradient id="paint1_linear" x1="2" y1="19.5" x2="22" y2="19.5" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#7C3AED"/>
+                            <stop offset="1" stop-color="#2563EB"/>
+                        </linearGradient>
+                        <linearGradient id="paint2_linear" x1="2" y1="14.5" x2="22" y2="14.5" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#00D4AA"/>
+                            <stop offset="1" stop-color="#00B4D8"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <span class="brand-name">FedHealth</span>
+            </div>
+            <div class="privacy-indicator pulse">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                </svg>
+                <span>Zero-Knowledge</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Hero Section -->
+        <header class="hero">
+            <h1 class="hero-title">Your Health, <span class="gradient-text">Fully Protected</span></h1>
+            <p class="hero-subtitle">State-of-the-art AI diagnostics that analyze your symptoms on-device. Your personal data never leaves this machine.</p>
+        </header>
+
+        <!-- Main Workspace -->
+        <div class="workspace glass">
+            <!-- Tabs -->
+            <div class="tabs" id="appTabs">
+                <button class="tab-btn active" data-target="symptoms">
+                    <span class="tab-icon">💊</span> Symptom Checker
+                </button>
+                <button class="tab-btn" data-target="skin">
+                    <span class="tab-icon">🔬</span> Skin Analysis
+                </button>
+                <button class="tab-btn" data-target="respiratory">
+                    <span class="tab-icon">🫁</span> Respiratory Check
+                </button>
+                <div class="tab-indicator" id="tabIndicator"></div>
+            </div>
+
+            <div class="tab-content-container">
+                <!-- Symptom Checker Mode -->
+                <div class="tab-pane active fade-in" id="symptoms">
+                    <div class="pane-header">
+                        <h2>Symptom Checker</h2>
+                        <p>Select all symptoms you are currently experiencing.</p>
+                    </div>
+                    
+                    <div class="search-box">
+                        <input type="text" id="symptomSearch" placeholder="Search symptoms (e.g., headache, fever)...">
+                        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    </div>
+
+                    <div class="selected-tags" id="selectedSymptoms">
+                        <!-- Selected tags will appear here -->
+                    </div>
+
+                    <div class="symptom-list" id="symptomList">
+                        <!-- Checkboxes will be populated by JS -->
+                    </div>
+
+                    <div class="actions">
+                        <button class="btn btn-primary" id="analyzeSymptomsBtn">
+                            <span class="btn-text">Analyze Symptoms</span>
+                            <div class="loader hidden"></div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Skin Analysis Mode -->
+                <div class="tab-pane hidden" id="skin">
+                    <div class="pane-header">
+                        <h2>Skin Lesion Analysis</h2>
+                        <p>Upload a clear photo of the skin concern for secure analysis.</p>
+                    </div>
+
+                    <div class="upload-zone" id="skinDropZone">
+                        <input type="file" id="skinFileInput" accept="image/*" class="hidden">
+                        <div class="upload-content" id="skinUploadContent">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                            <p>Drag & drop image here</p>
+                            <span class="upload-hint">or click to browse</span>
+                        </div>
+                        <div class="preview-container hidden" id="skinPreviewContainer">
+                            <img id="skinPreview" src="" alt="Preview">
+                            <button class="btn-icon remove-file" id="removeSkinFile">×</button>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button class="btn btn-primary" id="analyzeSkinBtn" disabled>
+                            <span class="btn-text">Analyze Image</span>
+                            <div class="loader hidden"></div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Respiratory Check Mode -->
+                <div class="tab-pane hidden" id="respiratory">
+                    <div class="pane-header">
+                        <h2>Respiratory Analysis</h2>
+                        <p>Record or upload your breathing/cough sound.</p>
+                    </div>
+
+                    <div class="audio-workspace">
+                        <div class="recorder-section">
+                            <button class="btn-record" id="recordBtn">
+                                <span class="record-indicator"></span>
+                            </button>
+                            <div class="timer" id="recordingTimer">00:00</div>
+                            <p class="recording-status" id="recordingStatus">Click to start recording</p>
+                            
+                            <div class="waveform-placeholder" id="waveform">
+                                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                            </div>
+                        </div>
+
+                        <div class="divider"><span>OR</span></div>
+
+                        <div class="upload-zone audio-drop" id="audioDropZone">
+                            <input type="file" id="audioFileInput" accept="audio/*" class="hidden">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                            <p>Upload Audio File</p>
+                        </div>
+                        
+                        <div class="audio-player-container hidden" id="audioPlayerContainer">
+                            <audio id="audioPlayback" controls></audio>
+                            <button class="btn-icon remove-file" id="removeAudioFile">×</button>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button class="btn btn-primary" id="analyzeAudioBtn" disabled>
+                            <span class="btn-text">Analyze Sound</span>
+                            <div class="loader hidden"></div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shared Results Panel -->
+        <div class="results-panel glass hidden slide-up" id="resultsPanel">
+            <div class="results-header">
+                <h2>Analysis Results</h2>
+                <button class="btn-icon close-results" id="closeResults">×</button>
+            </div>
+            
+            <div class="primary-result">
+                <div class="diagnosis" id="primaryDiagnosis">--</div>
+                <div class="confidence-circle">
+                    <svg viewBox="0 0 36 36" class="circular-chart">
+                        <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        <path class="circle" id="primaryConfidenceArc" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                    </svg>
+                    <div class="confidence-value"><span id="primaryConfidence">0</span>%</div>
+                </div>
+            </div>
+
+            <div class="secondary-results">
+                <h3>Top Predictions</h3>
+                <div class="predictions-list" id="predictionsList">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <div class="medical-disclaimer">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <p><strong>Medical Disclaimer:</strong> This AI prediction is for informational purposes only. It is not a substitute for professional medical advice, diagnosis, or treatment.</p>
+            </div>
+        </div>
+
+        <!-- Privacy Dashboard -->
+        <div class="privacy-dashboard glass">
+            <div class="dashboard-header">
+                <h3>Privacy Dashboard</h3>
+                <span class="badge">Live</span>
+            </div>
+            <div class="dashboard-grid">
+                <div class="metric-card">
+                    <div class="metric-title">Privacy Budget (ε)</div>
+                    <div class="metric-value" id="epsilonValue">--</div>
+                    <div class="metric-bar"><div class="fill" id="epsilonFill" style="width: 0%"></div></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Federated Round</div>
+                    <div class="metric-value"><span id="currentRound">--</span> / <span id="totalRounds">--</span></div>
+                    <div class="metric-subtitle">Global Accuracy: <span id="globalAccuracy">--</span>%</div>
+                </div>
+                <div class="metric-card secure-badge">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="url(#paint0_linear)"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    <p>Your data never leaves this device</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>FedHealth Project &copy; 2026. Empowering Privacy-Preserving Healthcare.</p>
+    </footer>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
