@@ -159,7 +159,10 @@ function initSkinAnalysis() {
     
     let currentFile = null;
 
-    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('click', (e) => {
+        if (e.target.closest('#removeSkinFile')) return;
+        fileInput.click();
+    });
     
     // Drag & Drop
     dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
