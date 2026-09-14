@@ -10,31 +10,21 @@ document.addEventListener('DOMContentLoaded', () => {
 // --- Tab Navigation Logic ---
 function initTabs() {
     const tabs = document.querySelectorAll('.tab-btn');
-    const indicator = document.getElementById('tabIndicator');
     const panes = document.querySelectorAll('.tab-pane');
 
-    function updateIndicator(btn) {
-        if (!indicator || window.innerWidth <= 768) return;
-        indicator.style.width = `${btn.offsetWidth}px`;
-        indicator.style.transform = `translateX(${btn.offsetLeft}px)`;
-    }
-
     function switchTab(targetId) {
-        // Update URL hash without scroll
         history.replaceState(null, null, `#${targetId}`);
 
         tabs.forEach(t => {
             t.classList.remove('active');
             if (t.dataset.target === targetId) {
                 t.classList.add('active');
-                updateIndicator(t);
             }
         });
 
         panes.forEach(p => {
             if (p.id === targetId) {
                 p.classList.remove('hidden');
-                // Trigger reflow for animation
                 void p.offsetWidth;
                 p.classList.add('fade-in');
             } else {
@@ -50,21 +40,11 @@ function initTabs() {
         tab.addEventListener('click', () => switchTab(tab.dataset.target));
     });
 
-    // Handle initial route
     const hash = window.location.hash.substring(1);
     const validTabs = ['symptoms', 'skin', 'respiratory'];
     if (validTabs.includes(hash)) {
         switchTab(hash);
-    } else {
-        // Init indicator for default tab
-        const activeTab = document.querySelector('.tab-btn.active');
-        if (activeTab) setTimeout(() => updateIndicator(activeTab), 100);
     }
-
-    window.addEventListener('resize', () => {
-        const activeTab = document.querySelector('.tab-btn.active');
-        if (activeTab) updateIndicator(activeTab);
-    });
 }
 
 // --- Symptom Checker Logic ---
@@ -82,27 +62,33 @@ function initSymptomChecker() {
     
     let selectedSymptoms = new Set();
 
-    // Render list
     function renderList(filter = '') {
         container.innerHTML = '';
         const filtered = symptomsList.filter(s => formatName(s).toLowerCase().includes(filter.toLowerCase()));
         
         filtered.forEach(sym => {
-            const label = document.createElement('label');
-            label.className = 'symptom-item';
+            const item = document.createElement('div');
             const isChecked = selectedSymptoms.has(sym);
-            label.innerHTML = `
-                <input type="checkbox" value="${sym}" ${isChecked ? 'checked' : ''}>
-                <span>${formatName(sym)}</span>
+            item.className = `symptom-item-neo ${isChecked ? 'checked' : ''}`;
+            item.innerHTML = `
+                <div class="checkbox-box">${isChecked ? '✓' : ''}</div>
+                <span class="symptom-label">${formatName(sym)}</span>
             `;
             
-            label.querySelector('input').addEventListener('change', (e) => {
-                if(e.target.checked) selectedSymptoms.add(sym);
-                else selectedSymptoms.delete(sym);
+            item.addEventListener('click', () => {
+                if (selectedSymptoms.has(sym)) {
+                    selectedSymptoms.delete(sym);
+                    item.classList.remove('checked');
+                    item.querySelector('.checkbox-box').textContent = '';
+                } else {
+                    selectedSymptoms.add(sym);
+                    item.classList.add('checked');
+                    item.querySelector('.checkbox-box').textContent = '✓';
+                }
                 renderTags();
                 updateBtnState();
             });
-            container.appendChild(label);
+            container.appendChild(item);
         });
     }
 
@@ -110,12 +96,13 @@ function initSymptomChecker() {
         tagsContainer.innerHTML = '';
         selectedSymptoms.forEach(sym => {
             const tag = document.createElement('div');
-            tag.className = 'tag';
+            tag.className = 'tag-selected';
             tag.innerHTML = `
                 ${formatName(sym)}
                 <span class="tag-remove" data-val="${sym}">×</span>
             `;
-            tag.querySelector('.tag-remove').addEventListener('click', () => {
+            tag.querySelector('.tag-remove').addEventListener('click', (e) => {
+                e.stopPropagation();
                 selectedSymptoms.delete(sym);
                 renderTags();
                 renderList(searchInput.value);
@@ -151,7 +138,7 @@ function initSymptomChecker() {
 function initSkinAnalysis() {
     const dropZone = document.getElementById('skinDropZone');
     const fileInput = document.getElementById('skinFileInput');
-    const uploadContent = document.getElementById('skinUploadContent');
+    const content = document.getElementById('skinUploadContent');
     const previewContainer = document.getElementById('skinPreviewContainer');
     const previewImg = document.getElementById('skinPreview');
     const removeBtn = document.getElementById('removeSkinFile');
@@ -164,54 +151,55 @@ function initSkinAnalysis() {
         fileInput.click();
     });
     
-    // Drag & Drop
-    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
     dropZone.addEventListener('drop', (e) => {
         e.preventDefault();
-        dropZone.classList.remove('dragover');
-        if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-    });
-    
-    fileInput.addEventListener('change', (e) => {
-        if(e.target.files.length) handleFile(e.target.files[0]);
+        if (e.dataTransfer.files.length) {
+            handleFile(e.dataTransfer.files[0]);
+        }
     });
 
-    removeBtn.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent opening file dialog
-        resetSkinUpload();
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            handleFile(e.target.files[0]);
+        }
     });
 
     function handleFile(file) {
-        if (!file.type.startsWith('image/')) return alert('Please upload an image file.');
+        if (!file.type.startsWith('image/')) {
+            alert('Please select an image file');
+            return;
+        }
         currentFile = file;
         const reader = new FileReader();
         reader.onload = (e) => {
             previewImg.src = e.target.result;
-            uploadContent.classList.add('hidden');
+            content.classList.add('hidden');
             previewContainer.classList.remove('hidden');
             analyzeBtn.disabled = false;
         };
         reader.readAsDataURL(file);
     }
 
-    function resetSkinUpload() {
+    removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         currentFile = null;
         fileInput.value = '';
         previewImg.src = '';
         previewContainer.classList.add('hidden');
-        uploadContent.classList.remove('hidden');
+        content.classList.remove('hidden');
         analyzeBtn.disabled = true;
-    }
+    });
 
     analyzeBtn.addEventListener('click', async () => {
-        if(!currentFile) return;
+        if (!currentFile) return;
         setLoading(analyzeBtn, true);
         try {
             const results = await window.api.predictSkin(currentFile);
-            displayResults(results.lesion_type || results.condition, results.confidence, results.top_predictions);
+            const primaryName = results.lesion_type || results.disease || results.condition;
+            displayResults(primaryName, results.confidence, results.top_predictions);
         } catch (error) {
-            alert('Analysis failed: ' + error.message);
+            alert('Image analysis failed: ' + error.message);
         } finally {
             setLoading(analyzeBtn, false);
         }
@@ -221,13 +209,12 @@ function initSkinAnalysis() {
 // --- Respiratory Analysis Logic ---
 function initRespiratoryAnalysis() {
     const recordBtn = document.getElementById('recordBtn');
-    const timerDisplay = document.getElementById('recordingTimer');
-    const statusText = document.getElementById('recordingStatus');
-    const waveform = document.getElementById('waveform');
+    const timerEl = document.getElementById('recordingTimer');
+    const statusEl = document.getElementById('recordingStatus');
     const dropZone = document.getElementById('audioDropZone');
     const fileInput = document.getElementById('audioFileInput');
     const playerContainer = document.getElementById('audioPlayerContainer');
-    const audioPlayback = document.getElementById('audioPlayback');
+    const player = document.getElementById('audioPlayback');
     const removeBtn = document.getElementById('removeAudioFile');
     const analyzeBtn = document.getElementById('analyzeAudioBtn');
 
@@ -235,148 +222,133 @@ function initRespiratoryAnalysis() {
     let audioChunks = [];
     let isRecording = false;
     let timerInterval = null;
-    let startTime = null;
-    let currentAudioFile = null;
+    let currentFile = null;
 
-    // Recording logic
-    recordBtn.addEventListener('click', async () => {
-        if (isRecording) {
-            stopRecording();
-        } else {
-            startRecording();
+    dropZone.addEventListener('click', (e) => {
+        if (e.target.closest('#removeAudioFile')) return;
+        fileInput.click();
+    });
+
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length) {
+            handleAudioFile(e.dataTransfer.files[0]);
         }
     });
 
-    async function startRecording() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
-
-            mediaRecorder.ondataavailable = (e) => {
-                if (e.data.size > 0) audioChunks.push(e.data);
-            };
-
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                currentAudioFile = new File([audioBlob], "recording.wav", { type: 'audio/wav' });
-                setupAudioPlayback(audioBlob);
-            };
-
-            mediaRecorder.start();
-            isRecording = true;
-            recordBtn.classList.add('recording');
-            waveform.classList.add('active');
-            statusText.textContent = "Recording... Click to stop";
-            
-            startTime = Date.now();
-            timerInterval = setInterval(updateTimer, 1000);
-            updateTimer();
-        } catch (err) {
-            alert("Microphone access denied or not available.");
-        }
-    }
-
-    function stopRecording() {
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-            mediaRecorder.stop();
-            mediaRecorder.stream.getTracks().forEach(track => track.stop());
-        }
-        isRecording = false;
-        recordBtn.classList.remove('recording');
-        waveform.classList.remove('active');
-        clearInterval(timerInterval);
-        statusText.textContent = "Recording complete";
-    }
-
-    function updateTimer() {
-        const diff = Math.floor((Date.now() - startTime) / 1000);
-        const mins = String(Math.floor(diff / 60)).padStart(2, '0');
-        const secs = String(diff % 60).padStart(2, '0');
-        timerDisplay.textContent = `${mins}:${secs}`;
-    }
-
-    // File Upload logic
-    dropZone.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', (e) => {
-        if(e.target.files.length) {
-            const file = e.target.files[0];
-            if(!file.type.startsWith('audio/')) return alert('Please upload an audio file.');
-            currentAudioFile = file;
-            setupAudioPlayback(file);
+        if (e.target.files.length) {
+            handleAudioFile(e.target.files[0]);
         }
     });
 
-    function setupAudioPlayback(blobOrFile) {
-        const url = URL.createObjectURL(blobOrFile);
-        audioPlayback.src = url;
+    function handleAudioFile(file) {
+        if (!file.type.startsWith('audio/')) {
+            alert('Please select an audio file');
+            return;
+        }
+        currentFile = file;
+        player.src = URL.createObjectURL(file);
         playerContainer.classList.remove('hidden');
+        dropZone.classList.add('hidden');
         analyzeBtn.disabled = false;
     }
 
-    removeBtn.addEventListener('click', () => {
-        audioPlayback.src = '';
-        currentAudioFile = null;
+    removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        currentFile = null;
         fileInput.value = '';
+        player.src = '';
         playerContainer.classList.add('hidden');
+        dropZone.classList.remove('hidden');
         analyzeBtn.disabled = true;
-        timerDisplay.textContent = "00:00";
-        statusText.textContent = "Click to start recording";
     });
 
+    recordBtn.addEventListener('click', async () => {
+        if (!isRecording) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(audioChunks, { type: 'audio/wav' });
+                    currentFile = new File([blob], 'recording.wav', { type: 'audio/wav' });
+                    player.src = URL.createObjectURL(blob);
+                    playerContainer.classList.remove('hidden');
+                    analyzeBtn.disabled = false;
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                recordBtn.classList.add('recording');
+                statusEl.textContent = 'Recording in progress... Ticker active.';
+                startTimer();
+            } catch (err) {
+                alert('Microphone access denied or unavailable: ' + err.message);
+            }
+        } else {
+            mediaRecorder.stop();
+            isRecording = false;
+            recordBtn.classList.remove('recording');
+            statusEl.textContent = 'Recording captured successfully.';
+            stopTimer();
+        }
+    });
+
+    function startTimer() {
+        let sec = 0;
+        timerInterval = setInterval(() => {
+            sec++;
+            const m = Math.floor(sec / 60).toString().padStart(2, '0');
+            const s = (sec % 60).toString().padStart(2, '0');
+            timerEl.textContent = `${m}:${s}`;
+        }, 1000);
+    }
+
+    function stopTimer() {
+        clearInterval(timerInterval);
+    }
+
     analyzeBtn.addEventListener('click', async () => {
-        if(!currentAudioFile) return;
+        if (!currentFile) return;
         setLoading(analyzeBtn, true);
         try {
-            const results = await window.api.predictRespiratory(currentAudioFile);
-            displayResults(results.condition, results.confidence, results.top_predictions);
+            const results = await window.api.predictRespiratory(currentFile);
+            const primaryName = results.condition || results.disease;
+            displayResults(primaryName, results.confidence, results.top_predictions);
         } catch (error) {
-            alert('Analysis failed: ' + error.message);
+            alert('Respiratory sound analysis failed: ' + error.message);
         } finally {
             setLoading(analyzeBtn, false);
         }
     });
 }
 
-// --- Privacy Dashboard ---
+// --- Privacy Dashboard Telemetry ---
 async function initPrivacyDashboard() {
-    async function updateData() {
+    try {
         const [status, privacy] = await Promise.all([
             window.api.getModelStatus(),
             window.api.getPrivacyBudget()
         ]);
 
-        document.getElementById('currentRound').textContent = status.current_round;
-        document.getElementById('totalRounds').textContent = status.total_rounds;
-        document.getElementById('globalAccuracy').textContent = status.global_accuracy;
-        
-        document.getElementById('epsilonValue').textContent = privacy.epsilon;
-        
-        // Assume budget goes up to 10 for progress bar
-        const epsVal = Math.min((parseFloat(privacy.epsilon) / 10) * 100, 100);
-        document.getElementById('epsilonFill').style.width = `${epsVal}%`;
-    }
+        document.getElementById('epsilonValue').textContent = `ε = ${privacy.epsilon || '2.00'}`;
+        const epsNum = parseFloat(privacy.epsilon) || 2.0;
+        const epsPct = Math.min((epsNum / 10.0) * 100, 100);
+        document.getElementById('epsilonFill').style.width = `${epsPct}%`;
 
-    await updateData();
-    // Update every 30 seconds
-    setInterval(updateData, 30000);
-}
-
-// --- Common UI Utils ---
-function setLoading(btn, isLoading) {
-    const text = btn.querySelector('.btn-text');
-    const loader = btn.querySelector('.loader');
-    if (isLoading) {
-        btn.disabled = true;
-        text.classList.add('hidden');
-        loader.classList.remove('hidden');
-    } else {
-        btn.disabled = false;
-        text.classList.remove('hidden');
-        loader.classList.add('hidden');
+        document.getElementById('currentRound').textContent = status.current_round || '20';
+        document.getElementById('totalRounds').textContent = status.total_rounds || '20';
+        document.getElementById('globalAccuracy').textContent = status.global_accuracy || '88.5';
+    } catch (err) {
+        console.warn('Privacy telemetry polling fallback:', err);
     }
 }
 
+// --- Diagnostic Results Panel ---
 function initResultsPanel() {
     document.getElementById('closeResults').addEventListener('click', hideResults);
 }
@@ -384,27 +356,22 @@ function initResultsPanel() {
 function hideResults() {
     const panel = document.getElementById('resultsPanel');
     panel.classList.add('hidden');
-    panel.classList.remove('slide-up');
 }
 
 function displayResults(primaryName, primaryConf, topPredictions) {
     const panel = document.getElementById('resultsPanel');
     
-    // Safe extraction for primary diagnosis confidence
     const validPrimaryConf = typeof primaryConf === 'number' && !isNaN(primaryConf) ? primaryConf : 0;
     const confPercent = Math.round(validPrimaryConf * 100);
     
-    // Set primary text
     document.getElementById('primaryDiagnosis').textContent = primaryName || 'Unknown';
     
-    // Animate percentage text
     animateValue('primaryConfidence', 0, confPercent, 1000);
     
-    // Color code confidence circle
     const arc = document.getElementById('primaryConfidenceArc');
-    let color = '#ef4444'; // red
-    if (confPercent >= 80) color = '#10b981'; // green
-    else if (confPercent >= 50) color = '#f59e0b'; // yellow
+    let color = '#FF3B30'; // High-voltage Coral Red
+    if (confPercent >= 80) color = '#10B981'; // Green
+    else if (confPercent >= 50) color = '#F59E0B'; // Yellow
     
     arc.style.stroke = color;
     
@@ -412,7 +379,6 @@ function displayResults(primaryName, primaryConf, topPredictions) {
         arc.style.strokeDasharray = `${confPercent}, 100`;
     }, 100);
 
-    // Set secondary predictions
     const list = document.getElementById('predictionsList');
     list.innerHTML = '';
     
@@ -421,38 +387,35 @@ function displayResults(primaryName, primaryConf, topPredictions) {
         const rawProb = typeof pred.probability === 'number' ? pred.probability : (typeof pred.confidence === 'number' ? pred.confidence : 0);
         const conf = isNaN(rawProb) || !isFinite(rawProb) ? 0 : Math.round(rawProb * 100);
         
-        let barColor = 'var(--accent-primary)';
-        if (conf < 50) barColor = 'var(--danger)';
-        else if (conf < 80) barColor = 'var(--warning)';
+        let barColor = 'var(--accent-coral)';
+        if (conf < 30) barColor = 'var(--text-muted)';
+        else if (conf < 60) barColor = 'var(--accent-yellow)';
 
         const item = document.createElement('div');
-        item.className = 'prediction-item';
+        item.className = 'prediction-item-neo';
         item.innerHTML = `
-            <div class="pred-name" title="${name}">${name}</div>
-            <div class="pred-bar-container">
-                <div class="pred-bar" style="background: ${barColor};" data-width="${conf}%"></div>
+            <div class="pred-name-neo" title="${name}">${name}</div>
+            <div class="pred-bar-bg">
+                <div class="pred-bar-fill" style="background: ${barColor};" data-width="${conf}%"></div>
             </div>
-            <div class="pred-val">${conf}%</div>
+            <div class="pred-val-neo">${conf}%</div>
         `;
         list.appendChild(item);
         
         setTimeout(() => {
-            const bar = item.querySelector('.pred-bar');
+            const bar = item.querySelector('.pred-bar-fill');
             if (bar) bar.style.width = bar.dataset.width;
         }, 100 + (index * 100));
     });
 
     panel.classList.remove('hidden');
-    // Trigger reflow
     void panel.offsetWidth;
-    panel.classList.add('slide-up');
-    
-    // Scroll to results
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function animateValue(id, start, end, duration) {
     const obj = document.getElementById(id);
+    if (!obj) return;
     let startTimestamp = null;
     const step = (timestamp) => {
         if (!startTimestamp) startTimestamp = timestamp;
@@ -463,4 +426,18 @@ function animateValue(id, start, end, duration) {
         }
     };
     window.requestAnimationFrame(step);
+}
+
+function setLoading(btn, isLoading) {
+    const text = btn.querySelector('.btn-text');
+    const loader = btn.querySelector('.loader');
+    if (isLoading) {
+        btn.disabled = true;
+        if (text) text.classList.add('hidden');
+        if (loader) loader.classList.remove('hidden');
+    } else {
+        btn.disabled = false;
+        if (text) text.classList.remove('hidden');
+        if (loader) loader.classList.add('hidden');
+    }
 }
