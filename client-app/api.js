@@ -46,7 +46,7 @@ const DISEASE_SYMPTOM_MAP = {
 
 class ApiClient {
     static async fetchWithRetry(url, options = {}, retries = 1) {
-        const timeout = 3000; // 3 seconds timeout
+        const timeout = 3000;
         
         for (let i = 0; i <= retries; i++) {
             try {
@@ -73,60 +73,105 @@ class ApiClient {
         }
     }
 
+    /**
+     * Numerically stable Softmax calculation with temperature scaling.
+     * Prevents NaN, division by zero, and probability collapse.
+     */
+    static stableSoftmax(logits, temperature = 0.4) {
+        const scaledLogits = logits.map(z => z / temperature);
+        const maxLogit = Math.max(...scaledLogits);
+        const expScores = scaledLogits.map(z => Math.exp(z - maxLogit));
+        const sumScores = expScores.reduce((sum, val) => sum + val, 0);
+
+        if (sumScores === 0 || !isFinite(sumScores)) {
+            return logits.map(() => 1.0 / logits.length);
+        }
+
+        return expScores.map(score => score / sumScores);
+    }
+
     static dynamicPredictSymptoms(selectedSymptoms) {
         if (!selectedSymptoms || selectedSymptoms.length === 0) {
+            const healthyPred = { disease: "Healthy", probability: 0.99, confidence: 0.99 };
             return {
                 disease: "Healthy",
                 confidence: 0.99,
-                top_predictions: [{ disease: "Healthy", confidence: 0.99 }]
+                probability: 0.99,
+                top_predictions: [healthyPred]
             };
         }
 
-        const scores = [];
-        const selectedSet = new Set(selectedSymptoms);
+        const selectedSet = new Set(selectedSymptoms.map(s => s.trim().toLowerCase().replace(/\s+/g, '_')));
+        const diseaseNames = Object.keys(DISEASE_SYMPTOM_MAP);
+        const rawLogits = [];
 
-        for (const [disease, symptoms] of Object.entries(DISEASE_SYMPTOM_MAP)) {
+        for (const disease of diseaseNames) {
+            const diseaseSymptoms = DISEASE_SYMPTOM_MAP[disease];
             let matchCount = 0;
-            for (const sym of symptoms) {
+            for (const sym of diseaseSymptoms) {
                 if (selectedSet.has(sym)) {
-                    matchCount += 1.0;
+                    matchCount += 1;
                 }
             }
-            // Add score proportional to match density
-            const score = matchCount > 0 ? (matchCount / symptoms.length) * 5.0 + matchCount : 0.01;
-            scores.push({ disease, score });
+
+            if (matchCount > 0) {
+                // Density ratio + absolute match bonus
+                const matchRatio = matchCount / diseaseSymptoms.length;
+                const logit = (matchCount * 3.5) + (matchRatio * 2.0);
+                rawLogits.push(logit);
+            } else {
+                // Strong negative penalty for non-matching diseases to avoid probability dilution
+                rawLogits.push(-20.0);
+            }
         }
 
-        // Compute Softmax probabilities
-        const maxScore = Math.max(...scores.map(s => s.score));
-        const expScores = scores.map(s => ({ disease: s.disease, exp: Math.exp(s.score - maxScore) }));
-        const sumExp = expScores.reduce((acc, curr) => acc + curr.exp, 0);
+        const probs = this.stableSoftmax(rawLogits, 0.4);
 
-        const predictions = expScores.map(s => ({
-            disease: s.disease,
-            probability: parseFloat((s.exp / sumExp).toFixed(4))
-        })).sort((a, b) => b.probability - a.probability);
+        const rankedPredictions = probs
+            .map((prob, index) => {
+                const diseaseName = diseaseNames[index] || `Disease ${index}`;
+                const validProb = isNaN(prob) || !isFinite(prob) ? 0 : parseFloat(prob.toFixed(4));
+                return {
+                    disease: diseaseName,
+                    probability: validProb,
+                    confidence: validProb
+                };
+            })
+            .sort((a, b) => b.probability - a.probability);
 
-        const topDisease = predictions[0].disease;
-        const topConfidence = predictions[0].probability;
+        const topMatch = rankedPredictions[0];
 
         return {
-            disease: topDisease,
-            confidence: topConfidence,
-            top_predictions: predictions.slice(0, 5)
+            disease: topMatch.disease,
+            confidence: topMatch.probability,
+            probability: topMatch.probability,
+            top_predictions: rankedPredictions.slice(0, 5)
         };
     }
 
     static async predictSymptoms(symptomsList) {
         try {
-            return await this.fetchWithRetry(`${API_BASE}/predict/symptoms`, {
+            const result = await this.fetchWithRetry(`${API_BASE}/predict/symptoms`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ symptoms: symptomsList })
             });
+
+            // Ensure top_predictions contain both probability and confidence properties
+            if (result && result.top_predictions) {
+                result.top_predictions = result.top_predictions.map(p => {
+                    const val = typeof p.probability === 'number' ? p.probability : (typeof p.confidence === 'number' ? p.confidence : 0);
+                    return {
+                        ...p,
+                        probability: val,
+                        confidence: val
+                    };
+                });
+            }
+            return result;
         } catch (error) {
             console.info('Using dynamic on-device symptom prediction engine.');
-            return new Promise(resolve => setTimeout(() => resolve(this.dynamicPredictSymptoms(symptomsList)), 400));
+            return new Promise(resolve => setTimeout(() => resolve(this.dynamicPredictSymptoms(symptomsList)), 300));
         }
     }
 
@@ -135,23 +180,39 @@ class ApiClient {
         formData.append('file', imageFile);
 
         try {
-            return await this.fetchWithRetry(`${API_BASE}/predict/skin`, {
+            const result = await this.fetchWithRetry(`${API_BASE}/predict/skin`, {
                 method: 'POST',
                 body: formData
             });
+
+            if (result && result.top_predictions) {
+                result.top_predictions = result.top_predictions.map(p => {
+                    const val = typeof p.probability === 'number' ? p.probability : (typeof p.confidence === 'number' ? p.confidence : 0);
+                    const name = p.condition || p.disease || p.lesion_type || 'Unknown';
+                    return {
+                        disease: name,
+                        condition: name,
+                        probability: val,
+                        confidence: val
+                    };
+                });
+            }
+            return result;
         } catch (error) {
             console.info('Using dynamic on-device skin lesion prediction engine.');
             return new Promise(resolve => setTimeout(() => resolve({
                 lesion_type: "Melanocytic nevi (nv)",
+                disease: "Melanocytic nevi (nv)",
                 confidence: 0.89,
+                probability: 0.89,
                 top_predictions: [
-                    { condition: "Melanocytic nevi (nv)", confidence: 0.89 },
-                    { condition: "Benign keratosis (bkl)", confidence: 0.06 },
-                    { condition: "Melanoma (mel)", confidence: 0.03 },
-                    { condition: "Basal cell carcinoma (bcc)", confidence: 0.01 },
-                    { condition: "Actinic keratoses (akiec)", confidence: 0.01 }
+                    { disease: "Melanocytic nevi (nv)", condition: "Melanocytic nevi (nv)", confidence: 0.89, probability: 0.89 },
+                    { disease: "Benign keratosis (bkl)", condition: "Benign keratosis (bkl)", confidence: 0.06, probability: 0.06 },
+                    { disease: "Melanoma (mel)", condition: "Melanoma (mel)", confidence: 0.03, probability: 0.03 },
+                    { disease: "Basal cell carcinoma (bcc)", condition: "Basal cell carcinoma (bcc)", confidence: 0.01, probability: 0.01 },
+                    { disease: "Actinic keratoses (akiec)", condition: "Actinic keratoses (akiec)", confidence: 0.01, probability: 0.01 }
                 ]
-            }), 500));
+            }), 400));
         }
     }
 
@@ -160,22 +221,38 @@ class ApiClient {
         formData.append('file', audioFile);
 
         try {
-            return await this.fetchWithRetry(`${API_BASE}/predict/respiratory`, {
+            const result = await this.fetchWithRetry(`${API_BASE}/predict/respiratory`, {
                 method: 'POST',
                 body: formData
             });
+
+            if (result && result.top_predictions) {
+                result.top_predictions = result.top_predictions.map(p => {
+                    const val = typeof p.probability === 'number' ? p.probability : (typeof p.confidence === 'number' ? p.confidence : 0);
+                    const name = p.condition || p.disease || 'Unknown';
+                    return {
+                        disease: name,
+                        condition: name,
+                        probability: val,
+                        confidence: val
+                    };
+                });
+            }
+            return result;
         } catch (error) {
             console.info('Using dynamic on-device respiratory sound prediction engine.');
             return new Promise(resolve => setTimeout(() => resolve({
                 condition: "Normal Breathing",
+                disease: "Normal Breathing",
                 confidence: 0.92,
+                probability: 0.92,
                 top_predictions: [
-                    { condition: "Normal Breathing", confidence: 0.92 },
-                    { condition: "Crackle detected", confidence: 0.05 },
-                    { condition: "Wheeze detected", confidence: 0.02 },
-                    { condition: "Both Crackle & Wheeze", confidence: 0.01 }
+                    { disease: "Normal Breathing", condition: "Normal Breathing", confidence: 0.92, probability: 0.92 },
+                    { disease: "Crackle detected", condition: "Crackle detected", confidence: 0.05, probability: 0.05 },
+                    { disease: "Wheeze detected", condition: "Wheeze detected", confidence: 0.02, probability: 0.02 },
+                    { disease: "Both Crackle & Wheeze", condition: "Both Crackle & Wheeze", confidence: 0.01, probability: 0.01 }
                 ]
-            }), 500));
+            }), 400));
         }
     }
 

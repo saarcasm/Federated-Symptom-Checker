@@ -390,9 +390,12 @@ function hideResults() {
 function displayResults(primaryName, primaryConf, topPredictions) {
     const panel = document.getElementById('resultsPanel');
     
-    // Set primary
+    // Safe extraction for primary diagnosis confidence
+    const validPrimaryConf = typeof primaryConf === 'number' && !isNaN(primaryConf) ? primaryConf : 0;
+    const confPercent = Math.round(validPrimaryConf * 100);
+    
+    // Set primary text
     document.getElementById('primaryDiagnosis').textContent = primaryName || 'Unknown';
-    const confPercent = Math.round(primaryConf * 100);
     
     // Animate percentage text
     animateValue('primaryConfidence', 0, confPercent, 1000);
@@ -405,11 +408,9 @@ function displayResults(primaryName, primaryConf, topPredictions) {
     
     arc.style.stroke = color;
     
-    // Animate dasharray: length is 100
-    // Dasharray format: "filled, empty"
     setTimeout(() => {
         arc.style.strokeDasharray = `${confPercent}, 100`;
-    }, 100); // slight delay to trigger css transition
+    }, 100);
 
     // Set secondary predictions
     const list = document.getElementById('predictionsList');
@@ -417,11 +418,12 @@ function displayResults(primaryName, primaryConf, topPredictions) {
     
     (topPredictions || []).forEach((pred, index) => {
         const name = pred.disease || pred.condition || 'Unknown';
-        const conf = Math.round(pred.confidence * 100);
+        const rawProb = typeof pred.probability === 'number' ? pred.probability : (typeof pred.confidence === 'number' ? pred.confidence : 0);
+        const conf = isNaN(rawProb) || !isFinite(rawProb) ? 0 : Math.round(rawProb * 100);
         
         let barColor = 'var(--accent-primary)';
-        if(conf < 50) barColor = 'var(--danger)';
-        else if(conf < 80) barColor = 'var(--warning)';
+        if (conf < 50) barColor = 'var(--danger)';
+        else if (conf < 80) barColor = 'var(--warning)';
 
         const item = document.createElement('div');
         item.className = 'prediction-item';
@@ -434,16 +436,14 @@ function displayResults(primaryName, primaryConf, topPredictions) {
         `;
         list.appendChild(item);
         
-        // Trigger animation
         setTimeout(() => {
             const bar = item.querySelector('.pred-bar');
-            bar.style.width = bar.dataset.width;
+            if (bar) bar.style.width = bar.dataset.width;
         }, 100 + (index * 100));
     });
 
-    // Show panel
     panel.classList.remove('hidden');
-    // Trigger reflow
+}    // Trigger reflow
     void panel.offsetWidth;
     panel.classList.add('slide-up');
     

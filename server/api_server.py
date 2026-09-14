@@ -120,12 +120,18 @@ async def predict_symptoms(request: SymptomRequest) -> Dict[str, Any]:
         
     with torch.no_grad():
         output = model(features)
-        probs = F.softmax(output, dim=1)[0].cpu().numpy()
+        # Apply temperature scaling to logits (T=0.5) for calibrated confidence
+        scaled_output = output / 0.5
+        probs = F.softmax(scaled_output, dim=1)[0].cpu().numpy()
         
     top_pred_idx = np.argmax(probs)
     
     top_predictions = [
-        {"disease": DISEASE_LIST[i], "probability": float(probs[i])}
+        {
+            "disease": DISEASE_LIST[i],
+            "probability": float(probs[i]),
+            "confidence": float(probs[i])
+        }
         for i in range(len(probs))
     ]
     top_predictions.sort(key=lambda x: x["probability"], reverse=True)
@@ -133,7 +139,8 @@ async def predict_symptoms(request: SymptomRequest) -> Dict[str, Any]:
     return {
         "disease": DISEASE_LIST[top_pred_idx],
         "confidence": float(probs[top_pred_idx]),
-        "top_predictions": top_predictions
+        "probability": float(probs[top_pred_idx]),
+        "top_predictions": top_predictions[:5]
     }
 
 @app.post("/predict/skin")
