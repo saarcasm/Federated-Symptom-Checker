@@ -54,7 +54,7 @@
             <!-- Primary CTAs -->
             <div class="hero-actions">
                 <a href="#workspace" class="btn-neo-primary">START DIAGNOSTIC NOW</a>
-                <button class="btn-neo-secondary" id="openSimulationModal">
+                <button class="btn-neo-secondary" id="toggleSimulationBtn">
                     <span class="play-icon">▶</span> LIVE FL SIMULATION
                 </button>
             </div>
@@ -307,9 +307,12 @@
     <script src="app.js"></script>
     <script>
         // Wireframe 3D Parametric Tunnel Canvas Animation
-        (function initTunnel() {
+        // Interactive Live FL Simulation Engine inside 3D Parametric Wireframe Canvas Tunnel
+        (function initTunnelSimulation() {
             const canvas = document.getElementById('wireframeCanvas');
+            const toggleBtn = document.getElementById('toggleSimulationBtn');
             if (!canvas) return;
+            
             const ctx = canvas.getContext('2d');
             let width, height;
 
@@ -320,9 +323,55 @@
             resize();
             window.addEventListener('resize', resize);
 
+            // Simulation State Engine
+            let isSimulating = false;
+            let simProgress = 0.0; // Lerp weight: 0.0 (ambient tunnel) -> 1.0 (active FL simulation)
             let time = 0;
+            let currentRound = 1;
+            let roundProgress = 0;
+            let activePhase = "LOCAL DP-SGD TRAINING";
+            let currentLoss = "0.784";
+            let currentAcc = "72.4";
+
+            // 12 Distributed FL Client Nodes
+            const NUM_CLIENTS = 12;
+            const clientNodes = [];
+            for (let i = 0; i < NUM_CLIENTS; i++) {
+                const angle = (i / NUM_CLIENTS) * Math.PI * 2;
+                clientNodes.push({
+                    id: i + 1,
+                    angle: angle,
+                    pulseOffset: Math.random() * Math.PI * 2
+                });
+            }
+
+            // FedAvg Sync Shockwave Ring Objects
+            const shockwaves = [];
+
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', () => {
+                    isSimulating = !isSimulating;
+                    if (isSimulating) {
+                        toggleBtn.classList.add('active');
+                        toggleBtn.style.background = 'rgba(255, 59, 48, 0.15)';
+                        toggleBtn.style.borderColor = '#FF3B30';
+                        toggleBtn.innerHTML = '<span class="play-icon">⏹</span> STOP SIMULATION';
+                    } else {
+                        toggleBtn.classList.remove('active');
+                        toggleBtn.style.background = 'transparent';
+                        toggleBtn.style.borderColor = 'var(--border-bright)';
+                        toggleBtn.innerHTML = '<span class="play-icon">▶</span> LIVE FL SIMULATION';
+                    }
+                });
+            }
+
             function animate() {
                 time += 0.007;
+
+                // Smooth Linear Interpolation (Lerp) for transition between modes
+                const targetSim = isSimulating ? 1.0 : 0.0;
+                simProgress += (targetSim - simProgress) * 0.05;
+
                 ctx.fillStyle = '#0F0F11';
                 ctx.fillRect(0, 0, width, height);
 
@@ -330,20 +379,45 @@
                 const centerY = height / 2;
                 const numRings = 26;
                 const pointsPerRing = 36;
+                const maxRadius = Math.min(width, height) * 0.75;
 
-                // Draw warped perspective rings
+                // FL Simulation Logic & Stage Updating
+                if (simProgress > 0.02) {
+                    roundProgress += 0.006 * (0.6 + simProgress * 0.4);
+                    if (roundProgress >= 1.0) {
+                        roundProgress = 0;
+                        currentRound = (currentRound % 50) + 1;
+                        currentLoss = Math.max(0.12, (0.85 * Math.exp(-currentRound * 0.05) + Math.random() * 0.02)).toFixed(3);
+                        currentAcc = Math.min(96.8, (64.2 + (currentRound * 0.65) + Math.random() * 0.4)).toFixed(1);
+                        
+                        // Trigger FedAvg Sync Shockwave ring
+                        shockwaves.push({ radius: 10, alpha: 1.0 });
+                    }
+
+                    if (roundProgress < 0.35) {
+                        activePhase = "LOCAL DP-SGD TRAINING";
+                    } else if (roundProgress < 0.70) {
+                        activePhase = "GRADIENT AGGREGATION";
+                    } else {
+                        activePhase = "GLOBAL MODEL SYNC";
+                    }
+                }
+
+                // 1. Render 3D Parametric Wireframe Tunnel Rings
                 for (let r = 1; r <= numRings; r++) {
                     const z = (r + (time * 9) % 1);
-                    const radius = Math.pow(z / numRings, 1.9) * Math.min(width, height) * 0.75;
+                    const radius = Math.pow(z / numRings, 1.9) * maxRadius;
                     const alpha = Math.min(1, z / 5) * Math.max(0, 1 - z / numRings);
                     
-                    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.35})`;
+                    const warpAmp = 0.04 + (simProgress * 0.02 * Math.sin(time * 3 + r * 0.2));
+                    
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * (0.35 + simProgress * 0.15)})`;
                     ctx.lineWidth = 1;
                     ctx.beginPath();
                     
                     for (let i = 0; i <= pointsPerRing; i++) {
                         const angle = (i / pointsPerRing) * Math.PI * 2;
-                        const warp = Math.sin(angle * 4 + time * 3) * (radius * 0.04);
+                        const warp = Math.sin(angle * 4 + time * 3) * (radius * warpAmp);
                         const currentRadius = radius + warp;
                         
                         const x = centerX + Math.cos(angle) * currentRadius;
@@ -356,9 +430,8 @@
                     ctx.stroke();
                 }
 
-                // Radial perspective lines
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
-                const maxRadius = Math.min(width, height) * 0.75;
+                // 2. Radial Perspective Grid Spokes
+                ctx.strokeStyle = `rgba(255, 255, 255, ${0.16 + simProgress * 0.08})`;
                 for (let i = 0; i < pointsPerRing; i++) {
                     const angle = (i / pointsPerRing) * Math.PI * 2;
                     const xEnd = centerX + Math.cos(angle) * maxRadius;
@@ -370,15 +443,102 @@
                     ctx.stroke();
                 }
 
-                // High-voltage Crimson center point
-                const pulse = Math.sin(time * 5) * 3 + 7;
+                // 3. Render FedAvg Global Model Sync Shockwaves (Outward)
+                for (let s = shockwaves.length - 1; s >= 0; s--) {
+                    const sw = shockwaves[s];
+                    sw.radius += 5.0;
+                    sw.alpha -= 0.02;
+
+                    if (sw.alpha <= 0 || sw.radius > maxRadius * 1.1) {
+                        shockwaves.splice(s, 1);
+                        continue;
+                    }
+
+                    ctx.strokeStyle = `rgba(255, 59, 48, ${sw.alpha * simProgress * 0.9})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, sw.radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                // 4. Render FL Client Nodes & Gradient Packets (Inward / Outward)
+                if (simProgress > 0.005) {
+                    const outerRingRadius = maxRadius * 0.82;
+
+                    clientNodes.forEach((node, idx) => {
+                        const nodeX = centerX + Math.cos(node.angle) * outerRingRadius;
+                        const nodeY = centerY + Math.sin(node.angle) * outerRingRadius;
+
+                        // Smoothly fade in/out node points
+                        ctx.globalAlpha = simProgress;
+                        
+                        const nodePulse = Math.sin(time * 5 + node.pulseOffset) * 2 + 5;
+                        const isPrimary = idx % 3 === 0;
+                        ctx.fillStyle = isPrimary ? '#FF3B30' : '#10B981';
+
+                        ctx.beginPath();
+                        ctx.arc(nodeX, nodeY, nodePulse, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        // Client ID Monospace Tag
+                        ctx.fillStyle = `rgba(255, 255, 255, ${simProgress * 0.9})`;
+                        ctx.font = '10px "JetBrains Mono", monospace';
+                        const labelX = nodeX + (Math.cos(node.angle) * 12);
+                        const labelY = nodeY + (Math.sin(node.angle) * 12);
+                        ctx.fillText(`C#${node.id < 10 ? '0' + node.id : node.id}`, labelX - 12, labelY + 4);
+
+                        // Gradient Transmission Packet Trajectory
+                        if (roundProgress >= 0.25 && roundProgress <= 0.70) {
+                            const pktProgress = (roundProgress - 0.25) / 0.45;
+                            const pktX = nodeX + (centerX - nodeX) * pktProgress;
+                            const pktY = nodeY + (centerY - nodeY) * pktProgress;
+
+                            ctx.fillStyle = '#FF3B30';
+                            ctx.beginPath();
+                            ctx.arc(pktX, pktY, 3, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+
+                        ctx.globalAlpha = 1.0;
+                    });
+
+                    // 5. Monospace Telemetry HUD Overlay Container Inside Canvas
+                    ctx.save();
+                    ctx.globalAlpha = Math.min(1.0, simProgress * 1.2);
+                    
+                    // Dark HUD box background with sharp 0px corners & crimson border
+                    ctx.fillStyle = 'rgba(15, 15, 17, 0.88)';
+                    ctx.fillRect(16, 16, width - 32, 44);
+                    ctx.strokeStyle = 'rgba(255, 59, 48, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(16, 16, width - 32, 44);
+
+                    ctx.font = '700 11px "JetBrains Mono", monospace';
+                    ctx.fillStyle = '#FF3B30';
+                    ctx.fillText('● LIVE FL NETWORK SIMULATOR', 28, 34);
+
+                    ctx.font = '500 10px "JetBrains Mono", monospace';
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillText(`ROUND: ${currentRound}/50  |  STAGE: ${activePhase}`, 28, 48);
+
+                    const metricsText = `LOSS: ${currentLoss}  ACC: ${currentAcc}%`;
+                    const textWidth = ctx.measureText(metricsText).width;
+                    ctx.fillStyle = '#A1A1AA';
+                    ctx.fillText(metricsText, width - 28 - textWidth, 42);
+
+                    ctx.restore();
+                }
+
+                // 6. Central Aggregator Core Node
+                const corePulse = Math.sin(time * 5) * 3 + (7 + simProgress * 5);
                 ctx.fillStyle = '#FF3B30';
                 ctx.beginPath();
-                ctx.arc(centerX, centerY, pulse, 0, Math.PI * 2);
+                ctx.arc(centerX, centerY, corePulse, 0, Math.PI * 2);
                 ctx.fill();
 
                 requestAnimationFrame(animate);
             }
+
             animate();
         })();
     </script>
