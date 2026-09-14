@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "name": "federated-symptom-checker",
+  "outputDirectory": "client-app",
+  "cleanUrls": true,
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
+    }
+  ]
+}
