@@ -443,7 +443,7 @@ function displayResults(primaryName, primaryConf, topPredictions) {
     });
 
     panel.classList.remove('hidden');
-}    // Trigger reflow
+    // Trigger reflow
     void panel.offsetWidth;
     panel.classList.add('slide-up');
     
