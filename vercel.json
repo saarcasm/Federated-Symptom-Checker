@@ -1,12 +1,16 @@
 {
   "version": 2,
-  "name": "federated-symptom-checker",
-  "outputDirectory": "client-app",
-  "cleanUrls": true,
+  "public": true,
+  "builds": [
+    {
+      "src": "client-app/**",
+      "use": "@vercel/static"
+    }
+  ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/$1"
+      "dest": "/client-app/$1"
     }
   ]
 }
