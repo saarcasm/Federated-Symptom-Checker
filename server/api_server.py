@@ -1,14 +1,15 @@
-import sys
+import sys, json
 from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import os
-from typing import List, Dict, Any
+import io
+from typing import List, Dict, Any, Optional
 import torch
 import torch.nn.functional as F
 import numpy as np
+from PIL import Image
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -25,204 +26,273 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Constants (131 symptoms matching SymptomMLP input vocabulary)
-SYMPTOM_LIST = [
-    "itching", "skin_rash", "nodal_skin_eruptions", "continuous_sneezing", "shivering",
-    "chills", "joint_pain", "stomach_pain", "acidity", "ulcers_on_tongue", "muscle_wasting",
-    "vomiting", "burning_micturition", "spotting_urination", "fatigue", "weight_gain",
-    "anxiety", "cold_hands_and_feets", "mood_swings", "weight_loss", "restlessness",
-    "lethargy", "patches_in_throat", "irregular_sugar_level", "cough", "high_fever",
-    "sunken_eyes", "breathlessness", "sweating", "dehydration", "indigestion", "headache",
-    "yellowish_skin", "dark_urine", "nausea", "loss_of_appetite", "pain_behind_the_eyes",
-    "back_pain", "constipation", "abdominal_pain", "diarrhoea", "mild_fever", "yellow_urine",
-    "yellowing_of_eyes", "acute_liver_failure", "fluid_overload", "swelling_of_stomach",
-    "swelled_lymph_nodes", "malaise", "blurred_and_distorted_vision", "phlegm",
-    "throat_irritation", "redness_of_eyes", "sinus_pressure", "runny_nose", "congestion",
-    "chest_pain", "weakness_in_limbs", "fast_heart_rate", "pain_during_bowel_movements",
-    "pain_in_anal_region", "bloody_stool", "irritation_in_anus", "neck_pain", "dizziness",
-    "cramps", "bruising", "obesity", "swollen_legs", "swollen_blood_vessels",
-    "puffy_face_and_eyes", "enlarged_thyroid", "brittle_nails", "swollen_extremeties",
-    "excessive_hunger", "extra_marital_contacts", "drying_and_tingling_lips",
-    "slurred_speech", "knee_pain", "hip_joint_pain", "muscle_weakness", "stiff_neck",
-    "swelling_joints", "movement_stiffness", "spinning_movements", "loss_of_balance",
-    "unsteadiness", "weakness_of_one_body_side", "loss_of_smell", "bladder_discomfort",
-    "foul_smell_of_urine", "continuous_feel_of_urine", "passage_of_gases", "internal_itching",
-    "toxic_look_typhos", "depression", "irritability", "muscle_pain", "altered_sensorium",
-    "red_spots_over_body", "belly_pain", "abnormal_menstruation", "dischromic_patches",
-    "watering_from_eyes", "increased_appetite", "polyuria", "family_history", "mucoid_sputum",
-    "rusty_sputum", "lack_of_concentration", "visual_disturbances", "receiving_blood_transfusion",
-    "receiving_unsterile_injections", "coma", "stomach_bleeding", "distention_of_abdomen",
-    "history_of_alcohol_consumption", "blood_in_sputum", "prominent_veins_on_calf",
-    "palpitations", "painful_walking", "pus_filled_pimples", "blackheads", "scurring",
-    "skin_peeling", "silver_like_dusting", "small_dents_in_nails", "inflammatory_nails",
-    "blister", "red_sore_around_nose", "yellow_crust_ooze"
-]
-
-DISEASE_LIST = [
-    "Fungal infection", "Allergy", "GERD", "Chronic cholestasis", "Drug Reaction",
-    "Peptic ulcer diseae", "AIDS", "Diabetes", "Gastroenteritis", "Bronchial Asthma",
-    "Hypertension", "Migraine", "Cervical spondylosis", "Paralysis (brain hemorrhage)",
-    "Jaundice", "Malaria", "Chicken pox", "Dengue", "Typhoid", "hepatitis A",
-    "Hepatitis B", "Hepatitis C", "Hepatitis D", "Hepatitis E", "Alcoholic hepatitis",
-    "Tuberculosis", "Common Cold", "Pneumonia", "Dimorphic hemmorhoids(piles)",
-    "Heart attack", "Varicose veins", "Hypothyroidism", "Hyperthyroidism", "Hypoglycemia",
-    "Osteoarthristis", "Arthritis", "(vertigo) Paroymsal  Positional Vertigo", "Acne",
-    "Urinary tract infection", "Psoriasis", "Impetigo"
-]
+CKPT_DIR = PROJECT_ROOT / "results" / "checkpoints"
 
 SKIN_LESION_LIST = ["Actinic keratoses (akiec)", "Basal cell carcinoma (bcc)", "Benign keratosis (bkl)", "Dermatofibroma (df)", "Melanoma (mel)", "Melanocytic nevi (nv)", "Vascular lesions (vasc)"]
 RESPIRATORY_COND_LIST = ["Normal", "Crackle detected", "Wheeze detected", "Both Crackle & Wheeze"]
 
-# Global model state
-models = {}
+IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+# Global state populated at startup
+models: Dict[str, torch.nn.Module] = {}
+model_trained: Dict[str, bool] = {}
+symptom_vocab: List[str] = []
+disease_classes: List[str] = []
+symptom_metrics: Dict[str, Any] = {}
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def load_latest_checkpoint(model_name: str, checkpoint_dir: str = "results/checkpoints") -> torch.nn.Module:
+
+def load_symptom_mlp():
+    """Loads the SymptomMLP checkpoint together with the exact feature/class
+    ordering it was trained with. Ordering must come from the training run,
+    not be hardcoded here, or predictions silently point at the wrong class."""
+    vocab_path = CKPT_DIR / "symptom_mlp_vocab.json"
+    classes_path = CKPT_DIR / "symptom_mlp_classes.json"
+    ckpt_path = CKPT_DIR / "symptom_mlp_latest.npy"
+    metrics_path = CKPT_DIR / "symptom_mlp_metrics.json"
+
+    if not (vocab_path.exists() and classes_path.exists() and ckpt_path.exists()):
+        print("WARNING: symptom_mlp checkpoint/vocab/classes not found. "
+              "Run `python benchmarks/train_and_export_checkpoint.py` to train it. "
+              "The /predict/symptoms endpoint will return 503 until then.")
+        return None, [], [], {}
+
+    with open(vocab_path) as f:
+        vocab = json.load(f)
+    with open(classes_path) as f:
+        classes = json.load(f)
+    metrics = {}
+    if metrics_path.exists():
+        with open(metrics_path) as f:
+            metrics = json.load(f)
+
+    model = get_model('symptom_mlp', input_dim=len(vocab), num_classes=len(classes)).to(device)
+    params = np.load(ckpt_path, allow_pickle=True)
+    state_dict = {k: torch.tensor(p) for k, p in zip(model.state_dict().keys(), params)}
+    model.load_state_dict(state_dict)
+    model.eval()
+    return model, vocab, classes, metrics
+
+
+def load_untrained(model_name: str) -> torch.nn.Module:
+    """skin_cnn / respiratory_cnn have no real training data available
+    (HAM10000 / ICBHI require Kaggle credentials this deployment doesn't
+    have). Loaded with random-initialized heads so the endpoints stay
+    live for UI/pipeline demonstration, but callers must be told the
+    result isn't a trained prediction (see `trained` flag in responses)."""
     model = get_model(model_name).to(device)
-    ckpt_path = Path(checkpoint_dir) / "global_model_latest.npy"
-    if ckpt_path.exists():
-        params = np.load(ckpt_path, allow_pickle=True)
-        # Check if length matches
-        model_state = model.state_dict()
-        if len(params) == len(model_state):
-            state_dict = {}
-            for k, p in zip(model_state.keys(), params):
-                state_dict[k] = torch.tensor(p)
-            model.load_state_dict(state_dict)
     model.eval()
     return model
 
+
 @app.on_event("startup")
 async def startup_event():
+    global models, model_trained, symptom_vocab, disease_classes, symptom_metrics
     print("Starting API Server and loading models...")
-    models['symptom_mlp'] = load_latest_checkpoint('symptom_mlp')
-    models['skin_cnn'] = load_latest_checkpoint('skin_cnn')
-    models['respiratory_cnn'] = load_latest_checkpoint('respiratory_cnn')
+
+    symptom_model, vocab, classes, metrics = load_symptom_mlp()
+    symptom_vocab = vocab
+    disease_classes = classes
+    symptom_metrics = metrics
+    if symptom_model is not None:
+        models['symptom_mlp'] = symptom_model
+        model_trained['symptom_mlp'] = True
+    else:
+        model_trained['symptom_mlp'] = False
+
+    models['skin_cnn'] = load_untrained('skin_cnn')
+    model_trained['skin_cnn'] = False
+    models['respiratory_cnn'] = load_untrained('respiratory_cnn')
+    model_trained['respiratory_cnn'] = False
+
 
 class SymptomRequest(BaseModel):
     symptoms: List[str]
+
 
 @app.post("/predict/symptoms")
 async def predict_symptoms(request: SymptomRequest) -> Dict[str, Any]:
     if not request.symptoms:
         raise HTTPException(status_code=400, detail="Symptoms list cannot be empty")
-        
-    # Feature vector creation
-    features = torch.zeros((1, len(SYMPTOM_LIST)), device=device)
+
+    if not model_trained.get('symptom_mlp'):
+        raise HTTPException(status_code=503, detail="Symptom model not trained yet. Run "
+                             "benchmarks/train_and_export_checkpoint.py on the server.")
+
+    unknown = [s for s in request.symptoms if s not in symptom_vocab]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unrecognized symptom(s): {unknown}")
+
+    features = torch.zeros((1, len(symptom_vocab)), device=device)
     for sym in request.symptoms:
-        if sym in SYMPTOM_LIST:
-            idx = SYMPTOM_LIST.index(sym)
-            features[0, idx] = 1.0
-            
-    model = models.get('symptom_mlp')
-    if not model:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-        
+        features[0, symptom_vocab.index(sym)] = 1.0
+
+    model = models['symptom_mlp']
     with torch.no_grad():
         output = model(features)
-        # Apply temperature scaling to logits (T=0.5) for calibrated confidence
-        scaled_output = output / 0.5
-        probs = F.softmax(scaled_output, dim=1)[0].cpu().numpy()
-        
-    top_pred_idx = np.argmax(probs)
-    
+        probs = F.softmax(output, dim=1)[0].cpu().numpy()
+
+    top_pred_idx = int(np.argmax(probs))
+
     top_predictions = [
         {
-            "disease": DISEASE_LIST[i],
-            "probability": float(probs[i]),
-            "confidence": float(probs[i])
+            "disease": disease_classes[i],
+            "confidence": float(probs[i]),
+            "probability": float(probs[i])
         }
         for i in range(len(probs))
     ]
-    top_predictions.sort(key=lambda x: x["probability"], reverse=True)
-    
+    top_predictions.sort(key=lambda x: x["confidence"], reverse=True)
+
     return {
-        "disease": DISEASE_LIST[top_pred_idx],
+        "disease": disease_classes[top_pred_idx],
         "confidence": float(probs[top_pred_idx]),
         "probability": float(probs[top_pred_idx]),
-        "top_predictions": top_predictions[:5]
+        "top_predictions": top_predictions[:5],
+        "trained": True,
+        "benchmark_metrics": symptom_metrics,
     }
+
+
+def preprocess_skin_image(content: bytes) -> torch.Tensor:
+    image = Image.open(io.BytesIO(content)).convert("RGB").resize((224, 224))
+    arr = np.asarray(image, dtype=np.float32) / 255.0
+    arr = (arr - IMAGENET_MEAN) / IMAGENET_STD
+    arr = arr.transpose(2, 0, 1)  # HWC -> CHW
+    return torch.tensor(arr, dtype=torch.float32, device=device).unsqueeze(0)
+
 
 @app.post("/predict/skin")
 async def predict_skin(file: UploadFile = File(...)) -> Dict[str, Any]:
-    if not file.content_type.startswith('image/'):
+    if not (file.content_type or "").startswith('image/'):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload an image.")
-        
-    # Dummy processing for example
+
     content = await file.read()
-    # In reality: image = Image.open(io.BytesIO(content)); transform(image)
-    
-    # Dummy input
-    dummy_input = torch.randn(1, 3, 224, 224, device=device)
-    
-    model = models.get('skin_cnn')
+    try:
+        input_tensor = preprocess_skin_image(content)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read image file.")
+
+    model = models['skin_cnn']
     with torch.no_grad():
-        output = model(dummy_input)
+        output = model(input_tensor)
         probs = F.softmax(output, dim=1)[0].cpu().numpy()
-        
-    top_pred_idx = np.argmax(probs)
-    
+
+    top_pred_idx = int(np.argmax(probs))
+
     top_predictions = [
-        {"disease": SKIN_LESION_LIST[i], "probability": float(probs[i])}
+        {"disease": SKIN_LESION_LIST[i], "confidence": float(probs[i])}
         for i in range(len(probs))
     ]
-    top_predictions.sort(key=lambda x: x["probability"], reverse=True)
-    
+    top_predictions.sort(key=lambda x: x["confidence"], reverse=True)
+
     return {
         "lesion_type": SKIN_LESION_LIST[top_pred_idx],
         "confidence": float(probs[top_pred_idx]),
-        "top_predictions": top_predictions
+        "top_predictions": top_predictions[:5],
+        "trained": False,
+        "notice": "This classifier's head has not been trained on real skin-lesion data "
+                  "(no HAM10000 access in this deployment) -- result is illustrative only."
     }
+
+
+def preprocess_respiratory_audio(content: bytes) -> torch.Tensor:
+    import librosa
+    y, sr = librosa.load(io.BytesIO(content), sr=22050, mono=True)
+    mel = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
+    mel_db = librosa.power_to_db(mel, ref=np.max)
+    # Resize time axis to 128 frames (pad or truncate)
+    if mel_db.shape[1] < 128:
+        mel_db = np.pad(mel_db, ((0, 0), (0, 128 - mel_db.shape[1])), mode="constant", constant_values=mel_db.min())
+    else:
+        mel_db = mel_db[:, :128]
+    mel_norm = (mel_db - mel_db.mean()) / (mel_db.std() + 1e-6)
+    return torch.tensor(mel_norm, dtype=torch.float32, device=device).unsqueeze(0).unsqueeze(0)
+
 
 @app.post("/predict/respiratory")
 async def predict_respiratory(file: UploadFile = File(...)) -> Dict[str, Any]:
-    if not file.content_type.startswith('audio/'):
+    if not (file.content_type or "").startswith('audio/'):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload audio.")
-        
+
     content = await file.read()
-    # Dummy processing
-    dummy_input = torch.randn(1, 1, 128, 128, device=device)
-    
-    model = models.get('respiratory_cnn')
+    try:
+        input_tensor = preprocess_respiratory_audio(content)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read/decode audio file.")
+
+    model = models['respiratory_cnn']
     with torch.no_grad():
-        output = model(dummy_input)
+        output = model(input_tensor)
         probs = F.softmax(output, dim=1)[0].cpu().numpy()
-        
-    top_pred_idx = np.argmax(probs)
-    
+
+    top_pred_idx = int(np.argmax(probs))
+
     top_predictions = [
-        {"condition": RESPIRATORY_COND_LIST[i], "probability": float(probs[i])}
+        {"disease": RESPIRATORY_COND_LIST[i], "confidence": float(probs[i])}
         for i in range(len(probs))
     ]
-    top_predictions.sort(key=lambda x: x["probability"], reverse=True)
-    
+    top_predictions.sort(key=lambda x: x["confidence"], reverse=True)
+
     return {
         "condition": RESPIRATORY_COND_LIST[top_pred_idx],
         "confidence": float(probs[top_pred_idx]),
-        "top_predictions": top_predictions
+        "top_predictions": top_predictions[:5],
+        "trained": False,
+        "notice": "This classifier has not been trained on real respiratory-sound data "
+                  "(no ICBHI 2017 access in this deployment) -- result is illustrative only."
     }
+
 
 @app.get("/model/status")
 async def get_model_status() -> Dict[str, Any]:
+    if model_trained.get('symptom_mlp'):
+        return {
+            "current_round": symptom_metrics.get("rounds", 0),
+            "total_rounds": symptom_metrics.get("rounds", 0),
+            "global_accuracy": symptom_metrics.get("accuracy", 0.0),
+            "num_clients": symptom_metrics.get("num_clients", 0),
+            "method": symptom_metrics.get("method", ""),
+        }
     return {
-        "current_round": 20, # Simulated
-        "total_rounds": 20,
-        "global_accuracy": 0.85,
-        "num_clients": 10
+        "current_round": 0,
+        "total_rounds": 0,
+        "global_accuracy": None,
+        "num_clients": 0,
+        "method": "not trained",
     }
+
 
 @app.get("/privacy/budget")
 async def get_privacy_budget() -> Dict[str, Any]:
+    # Reference configuration benchmarked in benchmarks/real_comparison_experiment.py
+    # (see benchmarks/results/comparison_results.csv). The deployed symptom_mlp
+    # checkpoint itself is FedAvg WITHOUT differential privacy (see /model/status);
+    # DP variants at this project's benchmarked round budget cut accuracy sharply,
+    # so DP is not applied to the live inference model. These figures describe the
+    # benchmark, not a guarantee active on the deployed model.
     return {
         "epsilon": 2.0,
         "delta": 1e-5,
-        "noise_multiplier": 1.5,
-        "max_grad_norm": 1.0
+        "note": "Reference privacy-utility benchmark (moderate preset, eps=2.0). "
+                "The deployed symptom checker uses FedAvg without DP for usable "
+                "accuracy; see benchmarks/results/comparison_results.csv for the "
+                "measured accuracy cost at eps in {0.5, 1.0, 2.0, 5.0}.",
+        "dp_applied_to_deployed_model": False,
     }
+
+
+@app.get("/symptoms")
+async def get_symptoms() -> Dict[str, Any]:
+    return {"symptoms": symptom_vocab, "trained": model_trained.get('symptom_mlp', False)}
+
 
 @app.get("/health")
 async def health_check() -> Dict[str, str]:
     return {"status": "healthy"}
+
 
 if __name__ == "__main__":
     import uvicorn

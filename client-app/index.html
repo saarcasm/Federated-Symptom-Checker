@@ -292,9 +292,14 @@
                 </div>
             </div>
 
+            <div class="demo-notice hidden" id="demoNotice">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <p id="demoNoticeText"></p>
+            </div>
+
             <div class="disclaimer-bar border-t">
                 <span class="disclaimer-icon">⚠️</span>
-                <p><strong>MEDICAL DISCLAIMER:</strong> This AI prediction is generated on-device for decision-support and educational benchmarking. Consult a licensed physician for clinical diagnosis.</p>
+                <p><strong>MEDICAL DISCLAIMER:</strong> This AI prediction is generated for decision-support and educational benchmarking. Consult a licensed physician for clinical diagnosis.</p>
             </div>
         </div>
 
@@ -310,7 +315,8 @@
                     <span class="dash-title">DIFFERENTIAL PRIVACY BUDGET (ε)</span>
                     <div class="dash-val" id="epsilonValue">ε = 2.00</div>
                     <div class="dash-progress border"><div class="dash-fill" id="epsilonFill" style="width: 40%"></div></div>
-                    <span class="dash-meta">OPACUS DP-SGD (δ = 1e-5)</span>
+                    <span class="dash-meta" id="epsilonNote">OPACUS DP-SGD (δ = 1e-5)</span>
+                </div>
                 </div>
 
                 <div class="dash-col border-r">

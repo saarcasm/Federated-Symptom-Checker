@@ -1000,6 +1000,24 @@ body.neo-dark-mode {
     to { transform: rotate(360deg); }
 }
 
+/* Demo Notice - Neo-Brutalist Alert */
+.demo-notice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 59, 48, 0.1);
+    border: 1px solid var(--accent-coral);
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: #FFA39E;
+}
+.demo-notice svg {
+    color: var(--accent-coral);
+    flex-shrink: 0;
+}
+
 /* Media Queries */
 @media (max-width: 1024px) {
     .hero-grid-container {
@@ -1012,6 +1030,19 @@ body.neo-dark-mode {
         grid-template-columns: 1fr;
     }
     .border-r {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+    }
+}
+
+@media (max-width: 768px) {
+    .hero-title-glitch {
+        font-size: 2.2rem;
+    }
+    .tabs-nav-bar {
+        flex-direction: column;
+    }
+    .tab-btn-neo {
         border-right: none;
         border-bottom: 1px solid var(--border-color);
     }

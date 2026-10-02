@@ -48,19 +48,36 @@ function initTabs() {
 }
 
 // --- Symptom Checker Logic ---
-function initSymptomChecker() {
-    const symptomsList = [
-        "itching", "skin_rash", "nodal_skin_eruptions", "continuous_sneezing", "shivering", "chills", "joint_pain", "stomach_pain", "acidity", "ulcers_on_tongue", "muscle_wasting", "vomiting", "burning_micturition", "fatigue", "weight_gain", "anxiety", "cold_hands_and_feets", "mood_swings", "weight_loss", "restlessness", "lethargy", "patches_in_throat", "irregular_sugar_level", "cough", "high_fever", "sunken_eyes", "breathlessness", "sweating", "dehydration", "indigestion", "headache", "yellowish_skin", "dark_urine", "nausea", "loss_of_appetite", "pain_behind_the_eyes", "back_pain", "constipation", "abdominal_pain", "diarrhoea", "mild_fever", "yellow_urine", "yellowing_of_eyes", "acute_liver_failure", "fluid_overload", "swelling_of_stomach", "swelled_lymph_nodes", "malaise", "blurred_and_distorted_vision", "phlegm", "throat_irritation", "redness_of_eyes", "sinus_pressure", "runny_nose", "congestion", "chest_pain", "weakness_in_limbs", "fast_heart_rate", "pain_during_bowel_movements", "pain_in_anal_region", "bloody_stool", "irritation_in_anus", "neck_pain", "dizziness", "cramps", "bruising", "obesity", "swollen_legs", "swollen_blood_vessels", "puffy_face_and_eyes", "enlarged_thyroid", "brittle_nails", "swollen_extremeties", "excessive_hunger", "extra_marital_contacts", "drying_and_tingling_lips", "slurred_speech", "knee_pain", "hip_joint_pain", "muscle_weakness", "stiff_neck", "swelling_joints", "movement_stiffness", "spinning_movements", "loss_of_balance", "unsteadiness", "weakness_of_one_body_side", "loss_of_smell", "bladder_discomfort", "foul_smell_of_urine", "continuous_feel_of_urine", "passage_of_gases", "internal_itching", "toxic_look_typhos", "depression", "irritability", "muscle_pain", "altered_sensorium", "red_spots_over_body", "belly_pain", "abnormal_menstruation", "dischromic_patches", "watering_from_eyes", "increased_appetite", "polyuria", "family_history", "mucoid_sputum", "rusty_sputum", "lack_of_concentration", "visual_disturbances", "receiving_blood_transfusion", "receiving_unsterile_injections", "coma", "stomach_bleeding", "distention_of_abdomen", "history_of_alcohol_consumption", "blood_in_sputum", "prominent_veins_on_calf", "palpitations", "painful_walking", "pus_filled_pimples", "blackheads", "scurring", "skin_peeling", "silver_like_dusting", "small_dents_in_nails", "inflammatory_nails", "blister", "red_sore_around_nose", "yellow_crust_ooze"
-    ];
+async function initSymptomChecker() {
+    let symptomsList = [];
 
-    const formatName = (str) => str.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const formatName = (str) => str.trim().replace(/\.\d+$/, '').replace(/\s+/g, '_')
+        .split('_').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
     const container = document.getElementById('symptomList');
     const searchInput = document.getElementById('symptomSearch');
     const tagsContainer = document.getElementById('selectedSymptoms');
     const analyzeBtn = document.getElementById('analyzeSymptomsBtn');
-    
+
     let selectedSymptoms = new Set();
+
+    try {
+        const vocab = await window.api.getSymptomVocabulary();
+        symptomsList = vocab.symptoms || [];
+        if (!vocab.trained || symptomsList.length === 0) {
+            console.warn("Symptom model not trained on server yet. Using reference symptom set.");
+            symptomsList = getDefaultSymptoms();
+        }
+    } catch (error) {
+        console.warn('Could not reach API server for dynamic symptoms, loading default vocabulary:', error);
+        symptomsList = getDefaultSymptoms();
+    }
+
+    function getDefaultSymptoms() {
+        return [
+            "itching", "skin_rash", "nodal_skin_eruptions", "continuous_sneezing", "shivering", "chills", "joint_pain", "stomach_pain", "acidity", "ulcers_on_tongue", "muscle_wasting", "vomiting", "burning_micturition", "spotting_urination", "fatigue", "weight_gain", "anxiety", "cold_hands_and_feets", "mood_swings", "weight_loss", "restlessness", "lethargy", "patches_in_throat", "irregular_sugar_level", "cough", "high_fever", "sunken_eyes", "breathlessness", "sweating", "dehydration", "indigestion", "headache", "yellowish_skin", "dark_urine", "nausea", "loss_of_appetite", "pain_behind_the_eyes", "back_pain", "constipation", "abdominal_pain", "diarrhoea", "mild_fever", "yellow_urine", "yellowing_of_eyes", "acute_liver_failure", "fluid_overload", "swelling_of_stomach", "swelled_lymph_nodes", "malaise", "blurred_and_distorted_vision", "phlegm", "throat_irritation", "redness_of_eyes", "sinus_pressure", "runny_nose", "congestion", "chest_pain", "weakness_in_limbs", "fast_heart_rate", "pain_during_bowel_movements", "pain_in_anal_region", "bloody_stool", "irritation_in_anus", "neck_pain", "dizziness", "cramps", "bruising", "obesity", "swollen_legs", "swollen_blood_vessels", "puffy_face_and_eyes", "enlarged_thyroid", "brittle_nails", "swollen_extremeties", "excessive_hunger", "extra_marital_contacts", "drying_and_tingling_lips", "slurred_speech", "knee_pain", "hip_joint_pain", "muscle_weakness", "stiff_neck", "swelling_joints", "movement_stiffness", "spinning_movements", "loss_of_balance", "unsteadiness", "weakness_of_one_body_side", "loss_of_smell", "bladder_discomfort", "foul_smell_of_urine", "continuous_feel_of_urine", "passage_of_gases", "internal_itching", "toxic_look_typhos", "depression", "irritability", "muscle_pain", "altered_sensorium", "red_spots_over_body", "belly_pain", "abnormal_menstruation", "dischromic_patches", "watering_from_eyes", "increased_appetite", "polyuria", "family_history", "mucoid_sputum", "rusty_sputum", "lack_of_concentration", "visual_disturbances", "receiving_blood_transfusion", "receiving_unsterile_injections", "coma", "stomach_bleeding", "distention_of_abdomen", "history_of_alcohol_consumption", "blood_in_sputum", "prominent_veins_on_calf", "palpitations", "painful_walking", "pus_filled_pimples", "blackheads", "scurring", "skin_peeling", "silver_like_dusting", "small_dents_in_nails", "inflammatory_nails", "blister", "red_sore_around_nose", "yellow_crust_ooze"
+        ];
+    }
 
     function renderList(filter = '') {
         container.innerHTML = '';
@@ -122,7 +139,7 @@ function initSymptomChecker() {
         setLoading(analyzeBtn, true);
         try {
             const results = await window.api.predictSymptoms(Array.from(selectedSymptoms));
-            displayResults(results.disease, results.confidence, results.top_predictions);
+            displayResults(results.disease, results.confidence, results.top_predictions, results);
         } catch (error) {
             alert('Analysis failed: ' + error.message);
         } finally {
@@ -197,13 +214,67 @@ function initSkinAnalysis() {
         try {
             const results = await window.api.predictSkin(currentFile);
             const primaryName = results.lesion_type || results.disease || results.condition;
-            displayResults(primaryName, results.confidence, results.top_predictions);
+            displayResults(primaryName, results.confidence, results.top_predictions, results);
         } catch (error) {
             alert('Image analysis failed: ' + error.message);
         } finally {
             setLoading(analyzeBtn, false);
         }
     });
+}
+
+// --- Audio helpers ---
+async function encodeBlobAsWav(blob) {
+    const arrayBuffer = await blob.arrayBuffer();
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+    audioCtx.close();
+
+    const numChannels = decoded.numberOfChannels;
+    const sampleRate = decoded.sampleRate;
+    const numFrames = decoded.length;
+
+    // Interleave channels
+    const interleaved = new Float32Array(numFrames * numChannels);
+    for (let ch = 0; ch < numChannels; ch++) {
+        const channelData = decoded.getChannelData(ch);
+        for (let i = 0; i < numFrames; i++) {
+            interleaved[i * numChannels + ch] = channelData[i];
+        }
+    }
+
+    const bytesPerSample = 2; // 16-bit PCM
+    const blockAlign = numChannels * bytesPerSample;
+    const dataSize = interleaved.length * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    const writeString = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);       // PCM chunk size
+    view.setUint16(20, 1, true);        // audio format = PCM
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bytesPerSample * 8, true);
+    writeString(36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    let offset = 44;
+    for (let i = 0; i < interleaved.length; i++, offset += 2) {
+        const s = Math.max(-1, Math.min(1, interleaved[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+
+    return new Blob([buffer], { type: 'audio/wav' });
 }
 
 // --- Respiratory Analysis Logic ---
@@ -272,13 +343,25 @@ function initRespiratoryAnalysis() {
                 mediaRecorder = new MediaRecorder(stream);
                 audioChunks = [];
 
-                mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-                mediaRecorder.onstop = () => {
-                    const blob = new Blob(audioChunks, { type: 'audio/wav' });
-                    currentFile = new File([blob], 'recording.wav', { type: 'audio/wav' });
-                    player.src = URL.createObjectURL(blob);
-                    playerContainer.classList.remove('hidden');
-                    analyzeBtn.disabled = false;
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const rawBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+                    try {
+                        const wavBlob = await encodeBlobAsWav(rawBlob);
+                        currentFile = new File([wavBlob], 'recording.wav', { type: 'audio/wav' });
+                        player.src = URL.createObjectURL(wavBlob);
+                        playerContainer.classList.remove('hidden');
+                        dropZone.classList.add('hidden');
+                        analyzeBtn.disabled = false;
+                        statusEl.textContent = 'Recording captured and converted to WAV.';
+                    } catch (err) {
+                        console.error('Failed to encode recording as WAV:', err);
+                        alert('Could not transcode audio to 16-bit PCM WAV. Try uploading an audio file instead.');
+                        statusEl.textContent = 'Audio processing error.';
+                    }
                 };
 
                 mediaRecorder.start();
@@ -290,10 +373,13 @@ function initRespiratoryAnalysis() {
                 alert('Microphone access denied or unavailable: ' + err.message);
             }
         } else {
-            mediaRecorder.stop();
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(t => t.stop());
+            }
             isRecording = false;
             recordBtn.classList.remove('recording');
-            statusEl.textContent = 'Recording captured successfully.';
+            statusEl.textContent = 'Processing recorded audio...';
             stopTimer();
         }
     });
@@ -318,7 +404,7 @@ function initRespiratoryAnalysis() {
         try {
             const results = await window.api.predictRespiratory(currentFile);
             const primaryName = results.condition || results.disease;
-            displayResults(primaryName, results.confidence, results.top_predictions);
+            displayResults(primaryName, results.confidence, results.top_predictions, results);
         } catch (error) {
             alert('Respiratory sound analysis failed: ' + error.message);
         } finally {
@@ -329,23 +415,47 @@ function initRespiratoryAnalysis() {
 
 // --- Privacy Dashboard Telemetry ---
 async function initPrivacyDashboard() {
-    try {
-        const [status, privacy] = await Promise.all([
-            window.api.getModelStatus(),
-            window.api.getPrivacyBudget()
-        ]);
+    async function updateData() {
+        try {
+            const [status, privacy] = await Promise.all([
+                window.api.getModelStatus(),
+                window.api.getPrivacyBudget()
+            ]);
 
-        document.getElementById('epsilonValue').textContent = `ε = ${privacy.epsilon || '2.00'}`;
-        const epsNum = parseFloat(privacy.epsilon) || 2.0;
-        const epsPct = Math.min((epsNum / 10.0) * 100, 100);
-        document.getElementById('epsilonFill').style.width = `${epsPct}%`;
+            const epsVal = privacy.epsilon != null ? privacy.epsilon : '2.00';
+            document.getElementById('epsilonValue').textContent = `ε = ${epsVal}`;
+            const epsNum = parseFloat(epsVal) || 2.0;
+            const epsPct = Math.min((epsNum / 10.0) * 100, 100);
+            document.getElementById('epsilonFill').style.width = `${epsPct}%`;
 
-        document.getElementById('currentRound').textContent = status.current_round || '20';
-        document.getElementById('totalRounds').textContent = status.total_rounds || '20';
-        document.getElementById('globalAccuracy').textContent = status.global_accuracy || '88.5';
-    } catch (err) {
-        console.warn('Privacy telemetry polling fallback:', err);
+            const epsilonNote = document.getElementById('epsilonNote');
+            if (epsilonNote) {
+                epsilonNote.textContent = privacy.dp_applied_to_deployed_model === false
+                    ? 'Reference benchmark only (FedAvg without DP deployed)'
+                    : 'OPACUS DP-SGD (δ = 1e-5)';
+            }
+
+            document.getElementById('currentRound').textContent = status.current_round != null ? status.current_round : '--';
+            document.getElementById('totalRounds').textContent = status.total_rounds != null ? status.total_rounds : '--';
+
+            const accEl = document.getElementById('globalAccuracy');
+            if (status.global_accuracy != null) {
+                const accVal = typeof status.global_accuracy === 'number' && status.global_accuracy <= 1
+                    ? (status.global_accuracy * 100).toFixed(1)
+                    : status.global_accuracy;
+                accEl.textContent = `${accVal}`;
+            } else {
+                accEl.textContent = '--';
+            }
+        } catch (err) {
+            console.warn('Privacy telemetry polling fallback:', err);
+            const epsNote = document.getElementById('epsilonNote');
+            if (epsNote) epsNote.textContent = 'API Server Offline';
+        }
     }
+
+    await updateData();
+    setInterval(updateData, 30000);
 }
 
 // --- Diagnostic Results Panel ---
@@ -358,9 +468,21 @@ function hideResults() {
     panel.classList.add('hidden');
 }
 
-function displayResults(primaryName, primaryConf, topPredictions) {
+function displayResults(primaryName, primaryConf, topPredictions, fullResult) {
     const panel = document.getElementById('resultsPanel');
     
+    // Demo notice for untrained heads
+    const demoNotice = document.getElementById('demoNotice');
+    const demoNoticeText = document.getElementById('demoNoticeText');
+    if (demoNotice && demoNoticeText) {
+        if (fullResult && fullResult.trained === false) {
+            demoNoticeText.textContent = fullResult.notice || 'This model has not been trained on real data yet -- result is illustrative only.';
+            demoNotice.classList.remove('hidden');
+        } else {
+            demoNotice.classList.add('hidden');
+        }
+    }
+
     const validPrimaryConf = typeof primaryConf === 'number' && !isNaN(primaryConf) ? primaryConf : 0;
     const confPercent = Math.round(validPrimaryConf * 100);
     
