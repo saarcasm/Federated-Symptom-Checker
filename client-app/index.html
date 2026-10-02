@@ -4,19 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FedHealth — Privacy-Preserving Health AI Symptom Checker</title>
-    <meta name="description" content="State-of-the-art privacy-preserving federated learning health AI symptom checker. Your personal health data never leaves your device.">
+    <meta name="description" content="Privacy-preserving health AI trained with Federated Learning and Differential Privacy -- raw patient records are never centralized during training.">
     
     <!-- Open Graph / Social Link Sharing Metadata -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://federated-symptom-checker.vercel.app/">
     <meta property="og:title" content="FedHealth — Privacy-Preserving Health AI">
-    <meta property="og:description" content="State-of-the-art privacy-preserving federated learning health AI symptom checker. Your personal health data never leaves your device.">
+    <meta property="og:description" content="Privacy-preserving health AI trained with Federated Learning and Differential Privacy -- raw patient records are never centralized during training.">
     <meta property="og:image" content="https://federated-symptom-checker.vercel.app/favicon.svg">
 
     <!-- Twitter Card Metadata -->
     <meta property="twitter:card" content="summary">
     <meta property="twitter:title" content="FedHealth — Privacy-Preserving Health AI">
-    <meta property="twitter:description" content="State-of-the-art privacy-preserving federated learning health AI symptom checker. Your personal health data never leaves your device.">
+    <meta property="twitter:description" content="Privacy-preserving health AI trained with Federated Learning and Differential Privacy -- raw patient records are never centralized during training.">
 
     <!-- Google Fonts: Space Grotesk & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -79,7 +79,7 @@
             </h1>
 
             <p class="hero-subtext">
-                Zero-Knowledge Medical AI running on-device with Opacus DP-SGD and Flower Federated Networks. Your sensitive personal health data never leaves this machine.
+                Trained with Federated Learning and Opacus DP-SGD -- raw patient records are never centralized during training. This demo sends your input to a local analysis server for inference.
             </p>
 
             <!-- Primary CTAs -->
@@ -96,8 +96,8 @@
                 <span class="sticker tag-2">Opacus DP-SGD</span>
                 <span class="sticker tag-3">Flower FL</span>
                 <span class="sticker tag-4">PyTorch 2.0</span>
-                <span class="sticker tag-5">On-Device AI</span>
-                <span class="sticker tag-6">Zero-Knowledge</span>
+                <span class="sticker tag-5">Federated Training</span>
+                <span class="sticker tag-6">Privacy-Preserving</span>
                 <span class="sticker tag-7">FastAPI</span>
                 <span class="sticker tag-8">Android Native</span>
             </div>
@@ -137,7 +137,7 @@
         <div class="footer-col trust-badge">
             <div class="tech-gear-icon">⚙</div>
             <p class="trust-text">
-                <strong>Zero-Knowledge Guaranteed:</strong> All diagnostic vectors are computed locally inside your browser sandbox.
+                <strong>Federated &amp; Private:</strong> The model is trained via Federated Averaging with Differential Privacy -- raw training data is never centralized.
             </p>
         </div>
     </div>
@@ -327,8 +327,8 @@
 
                 <div class="dash-col secure-status-col">
                     <span class="lock-big">🔒</span>
-                    <strong class="secure-title">ZERO-KNOWLEDGE DEPLOYED</strong>
-                    <p class="secure-desc">Raw medical features are never sent to remote servers. All model forward passes execute in browser memory.</p>
+                    <strong class="secure-title">FEDERATED &amp; PRIVATE</strong>
+                    <p class="secure-desc">Trained via Federated Averaging with Differential Privacy -- raw training data is never centralized.</p>
                 </div>
             </div>
         </div>
@@ -340,6 +340,11 @@
     </footer>
 
     <!-- Scripts -->
+    <!-- This is a static site with no backend deployed alongside it. To
+         point it at a real hosted backend (e.g. after deploying
+         server/api_server.py to Render/Railway/Fly.io/a VM), set the URL
+         here BEFORE api.js loads: -->
+    <!-- <script>window.FEDHEALTH_API_BASE = 'https://your-backend-host.example.com';</script> -->
     <script src="api.js"></script>
     <script src="app.js"></script>
     <script>

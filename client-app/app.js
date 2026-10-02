@@ -141,7 +141,7 @@ async function initSymptomChecker() {
             const results = await window.api.predictSymptoms(Array.from(selectedSymptoms));
             displayResults(results.disease, results.confidence, results.top_predictions, results);
         } catch (error) {
-            alert('Analysis failed: ' + error.message);
+            alert((error.message === 'Network error' || error.message === 'Request timed out') ? 'Could not reach the analysis server. This demo needs a backend running -- see the project README for setup.' : 'Analysis failed: ' + error.message);
         } finally {
             setLoading(analyzeBtn, false);
         }
@@ -216,7 +216,7 @@ function initSkinAnalysis() {
             const primaryName = results.lesion_type || results.disease || results.condition;
             displayResults(primaryName, results.confidence, results.top_predictions, results);
         } catch (error) {
-            alert('Image analysis failed: ' + error.message);
+            alert((error.message === 'Network error' || error.message === 'Request timed out') ? 'Could not reach the analysis server. This demo needs a backend running -- see the project README for setup.' : 'Image analysis failed: ' + error.message);
         } finally {
             setLoading(analyzeBtn, false);
         }
@@ -406,7 +406,7 @@ function initRespiratoryAnalysis() {
             const primaryName = results.condition || results.disease;
             displayResults(primaryName, results.confidence, results.top_predictions, results);
         } catch (error) {
-            alert('Respiratory sound analysis failed: ' + error.message);
+            alert((error.message === 'Network error' || error.message === 'Request timed out') ? 'Could not reach the analysis server. This demo needs a backend running -- see the project README for setup.' : 'Respiratory sound analysis failed: ' + error.message);
         } finally {
             setLoading(analyzeBtn, false);
         }
