@@ -362,6 +362,9 @@ a { text-decoration: none; color: inherit; }
 .medical-disclaimer { display: flex; gap: 1rem; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); padding: 1rem; border-radius: 0.75rem; color: var(--text-secondary); font-size: 0.875rem; }
 .medical-disclaimer svg { color: var(--warning); flex-shrink: 0; }
 
+.demo-notice { display: flex; gap: 1rem; background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.25); padding: 1rem; border-radius: 0.75rem; color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem; }
+.demo-notice svg { color: var(--danger); flex-shrink: 0; }
+
 /* Privacy Dashboard */
 .privacy-dashboard { border-radius: 1.5rem; padding: 2rem; margin-bottom: 3rem; }
 .dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
