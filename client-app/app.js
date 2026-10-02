@@ -150,7 +150,7 @@ async function initSymptomChecker() {
             const results = await window.api.predictSymptoms(Array.from(selectedSymptoms));
             displayResults(results.disease, results.confidence, results.top_predictions, results);
         } catch (error) {
-            alert('Analysis failed: ' + error.message);
+            showToast('Analysis failed: ' + error.message);
         } finally {
             setLoading(analyzeBtn, false);
         }
@@ -196,7 +196,7 @@ function initSkinAnalysis() {
     });
 
     function handleFile(file) {
-        if (!file.type.startsWith('image/')) return alert('Please upload an image file.');
+        if (!file.type.startsWith('image/')) return showToast('Please upload an image file.');
         currentFile = file;
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -224,7 +224,7 @@ function initSkinAnalysis() {
             const results = await window.api.predictSkin(currentFile);
             displayResults(results.lesion_type || results.condition, results.confidence, results.top_predictions, results);
         } catch (error) {
-            alert('Analysis failed: ' + error.message);
+            showToast('Analysis failed: ' + error.message);
         } finally {
             setLoading(analyzeBtn, false);
         }
@@ -282,7 +282,7 @@ function initRespiratoryAnalysis() {
                     setupAudioPlayback(wavBlob);
                 } catch (err) {
                     console.error('Failed to encode recording as WAV:', err);
-                    alert('Could not process the recording in this browser. Please try uploading an audio file instead.');
+                    showToast('Could not process the recording in this browser. Please try uploading an audio file instead.');
                 }
             };
 
@@ -296,7 +296,7 @@ function initRespiratoryAnalysis() {
             timerInterval = setInterval(updateTimer, 1000);
             updateTimer();
         } catch (err) {
-            alert("Microphone access denied or not available.");
+            showToast("Microphone access denied or not available.");
         }
     }
 
@@ -324,7 +324,7 @@ function initRespiratoryAnalysis() {
     fileInput.addEventListener('change', (e) => {
         if(e.target.files.length) {
             const file = e.target.files[0];
-            if(!file.type.startsWith('audio/')) return alert('Please upload an audio file.');
+            if(!file.type.startsWith('audio/')) return showToast('Please upload an audio file.');
             currentAudioFile = file;
             setupAudioPlayback(file);
         }
@@ -354,7 +354,7 @@ function initRespiratoryAnalysis() {
             const results = await window.api.predictRespiratory(currentAudioFile);
             displayResults(results.condition, results.confidence, results.top_predictions, results);
         } catch (error) {
-            alert('Analysis failed: ' + error.message);
+            showToast('Analysis failed: ' + error.message);
         } finally {
             setLoading(analyzeBtn, false);
         }
@@ -456,6 +456,25 @@ async function encodeBlobAsWav(blob) {
 }
 
 // --- Common UI Utils ---
+function showToast(message, type = 'error') {
+    let container = document.getElementById('toastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toastContainer';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 4500);
+}
+
 function setLoading(btn, isLoading) {
     const text = btn.querySelector('.btn-text');
     const loader = btn.querySelector('.loader');
@@ -480,8 +499,73 @@ function hideResults() {
     panel.classList.remove('slide-up');
 }
 
+// Builds a natural-language explanation of the prediction distribution,
+// scaling its confidence language to the actual probabilities rather than
+// always presenting the top result as authoritative. With N classes, a
+// probability barely above the uniform baseline (100/N) is treated as "no
+// clear signal" rather than being narrated as a likely diagnosis.
+function formatPredictionList(items) {
+    if (items.length === 0) return '';
+    if (items.length === 1) return `${items[0].name} (${items[0].pct}%)`;
+    const parts = items.map(p => `${p.name} (${p.pct}%)`);
+    const last = parts.pop();
+    return `${parts.join(', ')} and ${last}`;
+}
+
+function generateNarrative(topPredictions) {
+    const preds = (topPredictions || [])
+        .map(p => ({
+            name: p.disease || p.condition || 'Unknown',
+            prob: (p.confidence ?? p.probability ?? 0)
+        }))
+        .filter(p => typeof p.prob === 'number' && !isNaN(p.prob))
+        .sort((a, b) => b.prob - a.prob);
+
+    if (preds.length === 0) {
+        return "I couldn't generate a confident assessment from this input — please try again with more detail.";
+    }
+
+    const n = preds.length;
+    const uniform = 100 / n;
+    const top = preds[0];
+    const topPct = Math.round(top.prob * 100);
+    const second = preds[1];
+    const gapToSecond = second ? (top.prob - second.prob) * 100 : topPct;
+    const isFlat = topPct < uniform * 3 && gapToSecond < Math.max(uniform * 0.75, 1.5);
+
+    if (isFlat) {
+        const shortlist = preds.slice(0, 5).map(p => ({ name: p.name, pct: Math.round(p.prob * 100) }));
+        return `Based on what you've shared, nothing stands out clearly — your input doesn't strongly match a single condition. The closest (and roughly equally weak) matches were ${formatPredictionList(shortlist)}. I wouldn't put much weight on any single one of these — if symptoms persist, it's worth getting checked in person.`;
+    }
+
+    const rest = preds.slice(1, 5).map(p => ({ name: p.name, pct: Math.round(p.prob * 100) }));
+
+    let opening;
+    if (topPct >= 60) {
+        opening = `It's highly likely you're dealing with <strong>${top.name}</strong> (${topPct}% likelihood).`;
+    } else if (topPct >= 35) {
+        opening = `There's a good chance this is <strong>${top.name}</strong> (${topPct}% likelihood), though it's worth keeping other options in mind.`;
+    } else if (topPct >= uniform * 3) {
+        opening = `<strong>${top.name}</strong> looks like the closest match (${topPct}% likelihood), but the signal isn't very strong.`;
+    } else {
+        opening = `The closest match — though only weakly indicated — is <strong>${top.name}</strong> (${topPct}%).`;
+    }
+
+    const sentences = [opening];
+    if (rest.length > 0) {
+        sentences.push(`After that, in decreasing order of likelihood: ${formatPredictionList(rest)}.`);
+    }
+    if (topPct < 50) {
+        sentences.push(`Since no single result is strongly dominant, treat this as a rough starting point rather than a diagnosis.`);
+    }
+    return sentences.join(' ');
+}
+
 function displayResults(primaryName, primaryConf, topPredictions, fullResult) {
     const panel = document.getElementById('resultsPanel');
+
+    const narrativeEl = document.getElementById('aiNarrativeText');
+    if (narrativeEl) narrativeEl.innerHTML = generateNarrative(topPredictions);
 
     // Demo-mode notice (shown when the backend flags this prediction as untrained)
     const demoNotice = document.getElementById('demoNotice');

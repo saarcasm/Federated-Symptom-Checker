@@ -24,25 +24,34 @@ class SkinLesionDataset(Dataset):
         self.metadata = metadata_df
         self.img_dir = img_dir
         self.transform = transform
-        
+
         # 7 classes mapping
         classes = ['nv', 'mel', 'bkl', 'bcc', 'akiec', 'vasc', 'df']
         self.class_to_idx = {c: i for i, c in enumerate(classes)}
-        
+
+        # Build a filename -> path index once (HAM10000 images are split
+        # across HAM10000_images_part_1/ and part_2/ subfolders, so a
+        # per-item recursive glob is O(n) per lookup and O(n^2) overall).
+        self._image_index = {p.name: p for p in self.img_dir.glob("**/*.jpg")}
+
     def __len__(self):
         return len(self.metadata)
-        
+
     def __getitem__(self, idx):
         row = self.metadata.iloc[idx]
         img_id = row['image_id']
         label_str = row['dx']
         label = self.class_to_idx.get(label_str, 0)
-        
-        # Find the image
-        img_path = self.img_dir / f"{img_id}.jpg"
-        if not img_path.exists():
-            img_path = list(self.img_dir.glob(f"**/{img_id}.jpg"))[0]
-            
+
+        # Find the image via the prebuilt index (falls back to a direct
+        # path, then a one-off glob, for filenames added after indexing)
+        filename = f"{img_id}.jpg"
+        img_path = self._image_index.get(filename)
+        if img_path is None:
+            img_path = self.img_dir / filename
+            if not img_path.exists():
+                img_path = list(self.img_dir.glob(f"**/{filename}"))[0]
+
         image = Image.open(img_path).convert('RGB')
         
         if self.transform:

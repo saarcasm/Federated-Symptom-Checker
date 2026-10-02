@@ -9,13 +9,30 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 from models import get_model
-from data.partition import create_client_dataloaders
+from data.partition import create_client_dataloaders, create_tabular_test_loader
 
 def get_pooled_dataloader(dataset_name, batch_size):
-    # Dummy pooling for the sake of the script
-    # Real implementation would load the entire dataset. 
-    # Here we simulate by just getting a client dataloader and assuming it's the full data
-    # Or concatenate them if create_client_dataloaders is all we have.
+    # For tabular, train on the FULL 80% training split and evaluate on the
+    # true held-out 984-record test set -- matching the paper's "centralized
+    # baseline... full data access" / Table II methodology exactly. A
+    # num_clients=1 Dirichlet call (the previous approach here) instead
+    # trains on only 90% of the train split and evaluates against its local
+    # 10% val carve-out, which is not the paper's held-out test set.
+    if dataset_name == 'tabular':
+        from pathlib import Path
+        import torch as _torch
+        PROJECT_ROOT = Path(__file__).resolve().parents[1]
+        tabular_dir = PROJECT_ROOT / "data" / "processed" / "tabular"
+        if not (tabular_dir / "X_train.pt").exists():
+            from data.preprocess_tabular import preprocess_tabular
+            preprocess_tabular()
+        X_train = _torch.load(tabular_dir / "X_train.pt")
+        y_train = _torch.load(tabular_dir / "y_train.pt")
+        train_ds = _torch.utils.data.TensorDataset(X_train, y_train)
+        train_loader = _torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+        test_loader = create_tabular_test_loader(batch_size=batch_size)
+        return train_loader, test_loader
+
     try:
         clients = create_client_dataloaders(dataset_name, num_clients=1, batch_size=batch_size, alpha=1.0)
         train_loader, val_loader = clients[0]
@@ -49,7 +66,15 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     train_loader, val_loader = get_pooled_dataloader(args.dataset, args.batch_size)
-    model = get_model(args.model).to(device)
+
+    model_kwargs = {}
+    if args.dataset == 'tabular':
+        test_ds = val_loader.dataset
+        model_kwargs = {
+            'input_dim': test_ds.tensors[0].shape[1],
+            'num_classes': int(torch.unique(test_ds.tensors[1]).numel()),
+        }
+    model = get_model(args.model, **model_kwargs).to(device)
     
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)

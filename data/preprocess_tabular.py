@@ -24,7 +24,11 @@ def preprocess_tabular():
     if not dataset_file.exists():
         logger.warning(f"Dataset not found at {dataset_file}. Generating synthetic symptom-disease benchmark dataset...")
         RAW_DIR.mkdir(parents=True, exist_ok=True)
-        # Create realistic synthetic symptom dataset (41 diseases, 132 symptoms, 4920 samples)
+        # Create a realistic synthetic symptom dataset in the SAME already
+        # one-hot-encoded layout as the real Kaggle "prognosis"-labeled CSV
+        # (symptom columns as 0/1 flags, disease name as the last column) --
+        # not a Symptom_1..17-string-column layout, which this project's raw
+        # dataset.csv does not use.
         diseases = [
             "Fungal infection", "Allergy", "GERD", "Chronic cholestasis", "Drug Reaction",
             "Peptic ulcer diseae", "AIDS", "Diabetes", "Gastroenteritis", "Bronchial Asthma",
@@ -72,17 +76,16 @@ def preprocess_tabular():
         for disease in diseases:
             # Pick 3 to 7 characteristic symptoms for each disease
             num_syms = np.random.randint(3, 8)
-            disease_syms = list(np.random.choice(symptom_list, size=num_syms, replace=False))
+            disease_syms = set(np.random.choice(symptom_list, size=num_syms, replace=False))
             for _ in range(120): # 120 samples per disease = 4920 total
                 # Add slight noise (drop 1 symptom or add 1 random symptom)
-                sample_syms = list(disease_syms)
+                sample_syms = set(disease_syms)
                 if len(sample_syms) > 2 and np.random.rand() < 0.2:
-                    sample_syms.pop(np.random.randint(len(sample_syms)))
+                    sample_syms.discard(np.random.choice(list(sample_syms)))
                 if np.random.rand() < 0.2:
-                    sample_syms.append(np.random.choice(symptom_list))
-                row = {'Disease': disease}
-                for idx, sym in enumerate(sample_syms[:17], 1):
-                    row[f'Symptom_{idx}'] = sym
+                    sample_syms.add(np.random.choice(symptom_list))
+                row = {sym: (1 if sym in sample_syms else 0) for sym in symptom_list}
+                row['prognosis'] = disease
                 records.append(row)
         synth_df = pd.DataFrame(records)
         synth_df.to_csv(dataset_file, index=False)
@@ -90,58 +93,45 @@ def preprocess_tabular():
 
     logger.info("Loading tabular dataset...")
     df = pd.read_csv(dataset_file)
-    
-    # Fill NaNs with empty string
-    df = df.fillna('')
-    
-    # The first column is 'Disease', the rest are 'Symptom_1', 'Symptom_2', ...
-    diseases = df['Disease'].values
-    symptoms = df.drop('Disease', axis=1).values
-    
-    # Extract unique symptoms
-    unique_symptoms = set()
-    for row in symptoms:
-        for symptom in row:
-            if symptom.strip() != '':
-                unique_symptoms.add(symptom.strip())
-                
-    unique_symptoms = sorted(list(unique_symptoms))
-    symptom_to_idx = {sym: i for i, sym in enumerate(unique_symptoms)}
-    
+    # Drop any trailing all-empty column from a trailing comma in the source
+    # CSV (the real Kaggle "prognosis" mirror has one: 134 raw columns ->
+    # 132 real one-hot symptom columns + 1 label column after this drop).
+    df = df.dropna(axis=1, how="all")
+
+    # Symptom columns are already one-hot (0/1); the label is the last
+    # remaining column ("prognosis" in the real dataset).
+    label_col = df.columns[-1]
+    feature_cols = [c for c in df.columns if c != label_col]
+
+    X = df[feature_cols].values.astype(np.float32)
+    unique_symptoms = list(feature_cols)
     logger.info(f"Found {len(unique_symptoms)} unique symptoms.")
-    
-    # One-hot encode symptoms
-    X = np.zeros((len(df), len(unique_symptoms)), dtype=np.float32)
-    for i, row in enumerate(symptoms):
-        for symptom in row:
-            sym = symptom.strip()
-            if sym != '':
-                X[i, symptom_to_idx[sym]] = 1.0
-                
+
     # Label encode diseases
     le = LabelEncoder()
-    y = le.fit_transform(diseases)
+    y = le.fit_transform(df[label_col].astype(str).str.strip().values)
     num_classes = len(le.classes_)
     logger.info(f"Found {num_classes} unique diseases.")
-    
-    # Train/Val/Test Split (70/15/15)
-    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
-    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp)
-    
+
+    # Train/Test split (80/20), matching the paper's Section III-D methodology
+    # (3,936 training / 984 test records on the 4,920-record dataset). No
+    # separate val split here -- the held-out test set below is the single
+    # evaluation set the paper's Table II / Figs 7-9 numbers are measured on;
+    # per-client local validation (for Flower's client-side evaluate RPC) is
+    # carved out of each client's own training shard in data/partition.py.
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
     # Save processed tensors
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     torch.save(torch.tensor(X_train), PROCESSED_DIR / "X_train.pt")
     torch.save(torch.tensor(y_train), PROCESSED_DIR / "y_train.pt")
-    
-    torch.save(torch.tensor(X_val), PROCESSED_DIR / "X_val.pt")
-    torch.save(torch.tensor(y_val), PROCESSED_DIR / "y_val.pt")
-    
+
     torch.save(torch.tensor(X_test), PROCESSED_DIR / "X_test.pt")
     torch.save(torch.tensor(y_test), PROCESSED_DIR / "y_test.pt")
-    
+
     logger.info("Saved processed tabular dataset.")
-    logger.info(f"Train size: {len(X_train)}, Val size: {len(X_val)}, Test size: {len(X_test)}")
+    logger.info(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
 
 if __name__ == "__main__":
     preprocess_tabular()

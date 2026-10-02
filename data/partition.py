@@ -71,7 +71,7 @@ def create_client_dataloaders(dataset_name: str, num_clients: int, batch_size: i
     """
     from pathlib import Path
     PROJECT_ROOT = Path(__file__).resolve().parents[1]
-    
+
     if dataset_name == 'tabular':
         tabular_dir = PROJECT_ROOT / "data" / "processed" / "tabular"
         if not (tabular_dir / "X_train.pt").exists():
@@ -79,13 +79,24 @@ def create_client_dataloaders(dataset_name: str, num_clients: int, batch_size: i
             preprocess_tabular()
         X_train = torch.load(tabular_dir / "X_train.pt")
         y_train = torch.load(tabular_dir / "y_train.pt")
-        X_val = torch.load(tabular_dir / "X_val.pt")
-        y_val = torch.load(tabular_dir / "y_val.pt")
-        
-        train_ds = torch.utils.data.TensorDataset(X_train, y_train)
-        val_ds = torch.utils.data.TensorDataset(X_val, y_val)
+
+        # X_train/y_train is the paper's 80% training split (3,936 records).
+        # Carve a small per-client local-val slice out of the TRAINING data
+        # only -- the held-out test set (create_tabular_test_loader below)
+        # must never be touched here, or client-side "val" accuracy would
+        # leak test examples into a set the model's hyperparameters could
+        # implicitly be tuned against.
+        n = len(X_train)
+        val_frac = 0.1
+        rng = np.random.default_rng(42)
+        perm = rng.permutation(n)
+        n_val = int(n * val_frac)
+        val_idx, train_idx = perm[:n_val], perm[n_val:]
+
+        train_ds = torch.utils.data.TensorDataset(X_train[train_idx], y_train[train_idx])
+        val_ds = torch.utils.data.TensorDataset(X_train[val_idx], y_train[val_idx])
         num_classes = len(torch.unique(y_train))
-        
+
     elif dataset_name == 'skin':
         from data.preprocess_skin import SkinLesionDataset, get_skin_transforms
         import pandas as pd
@@ -116,8 +127,28 @@ def create_client_dataloaders(dataset_name: str, num_clients: int, batch_size: i
         
     train_loaders = get_client_dataloaders(train_ds, num_clients, alpha, batch_size, num_classes)
     val_loaders = get_client_dataloaders(val_ds, num_clients, alpha, batch_size, num_classes)
-    
+
     return list(zip(train_loaders, val_loaders))
+
+
+def create_tabular_test_loader(batch_size: int = 32) -> DataLoader:
+    """
+    The single, global, held-out test set (the paper's 984-record split) --
+    never partitioned across clients, never used for training or per-client
+    validation. This is what server-side evaluation (Table II / Figs 7-9'
+    methodology) must be measured against.
+    """
+    from pathlib import Path
+    PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    tabular_dir = PROJECT_ROOT / "data" / "processed" / "tabular"
+    if not (tabular_dir / "X_test.pt").exists():
+        from data.preprocess_tabular import preprocess_tabular
+        preprocess_tabular()
+    X_test = torch.load(tabular_dir / "X_test.pt")
+    y_test = torch.load(tabular_dir / "y_test.pt")
+    test_ds = torch.utils.data.TensorDataset(X_test, y_test)
+    return DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Partitioning utility")

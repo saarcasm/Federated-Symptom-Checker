@@ -45,7 +45,7 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                 </svg>
-                <span>Zero-Knowledge</span>
+                <span>Federated &amp; Private</span>
             </div>
         </div>
     </nav>
@@ -53,8 +53,8 @@
     <main class="container">
         <!-- Hero Section -->
         <header class="hero">
-            <h1 class="hero-title">Your Health, <span class="gradient-text">Fully Protected</span></h1>
-            <p class="hero-subtitle">State-of-the-art AI diagnostics that analyze your symptoms on-device. Your personal data never leaves this machine.</p>
+            <h1 class="hero-title">Your Health, <span class="gradient-text">Privacy-Preserving AI</span></h1>
+            <p class="hero-subtitle">This model is trained with Federated Learning and Differential Privacy — raw patient records are never centralized during training. This demo app sends your input to a local analysis server for inference.</p>
         </header>
 
         <!-- Main Workspace -->
@@ -193,8 +193,16 @@
                 </div>
             </div>
 
+            <div class="ai-narrative">
+                <div class="ai-narrative-header">
+                    <span class="ai-avatar">🩺</span>
+                    <span class="ai-label">AI Assistant</span>
+                </div>
+                <p class="ai-narrative-text" id="aiNarrativeText">Analyzing your results...</p>
+            </div>
+
             <div class="secondary-results">
-                <h3>Top Predictions</h3>
+                <h3>Full Breakdown</h3>
                 <div class="predictions-list" id="predictionsList">
                     <!-- Populated by JS -->
                 </div>
@@ -231,7 +239,7 @@
                 </div>
                 <div class="metric-card secure-badge">
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="url(#paint0_linear)"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                    <p>Your data never leaves this device</p>
+                    <p>Trained via Federated Learning — raw training data is never centralized</p>
                 </div>
             </div>
         </div>
