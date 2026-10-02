@@ -21,7 +21,8 @@ class FedSymptomClient(fl.client.NumPyClient):
         val_loader: torch.utils.data.DataLoader,
         local_epochs: int,
         dp_config: DPConfig,
-        device: torch.device
+        device: torch.device,
+        model_name: str = "",
     ):
         self.model = model
         self.train_loader = train_loader
@@ -29,7 +30,19 @@ class FedSymptomClient(fl.client.NumPyClient):
         self.local_epochs = local_epochs
         self.dp_config = dp_config
         self.device = device
+        self.model_name = model_name
         self.criterion = nn.CrossEntropyLoss()
+
+    def _make_optimizer(self, local_model: nn.Module) -> torch.optim.Optimizer:
+        # symptom_mlp: SGD(lr=0.08, momentum=0.9) matches the hyperparameters
+        # actually tuned and used in benchmarks/real_comparison_experiment.py,
+        # the script that produced the paper's Table II / Figs 7-9 numbers.
+        # Adam(lr=1e-3) remains the default for skin_cnn/respiratory_cnn,
+        # which aren't quantitatively evaluated in the paper (Section V-D)
+        # and where Adam is the safer default for a pretrained CNN backbone.
+        if self.model_name == "symptom_mlp":
+            return torch.optim.SGD(local_model.parameters(), lr=0.08, momentum=0.9)
+        return torch.optim.Adam(local_model.parameters(), lr=1e-3)
 
     def get_parameters(self, config: Dict[str, fl.common.Scalar]) -> List[np.ndarray]:
         # Unwrap model if it was wrapped by Opacus GradSampleModule
@@ -53,17 +66,17 @@ class FedSymptomClient(fl.client.NumPyClient):
         local_model.train()
         local_model.to(self.device)
 
+        optimizer = self._make_optimizer(local_model)
+
         if self.dp_config.enabled:
             from opacus.validators import ModuleValidator
             if not ModuleValidator.is_valid(local_model):
                 local_model = ModuleValidator.fix(local_model)
-            optimizer = torch.optim.Adam(local_model.parameters(), lr=1e-3)
             actual_dp_config = copy.deepcopy(self.dp_config)
             local_model, optimizer, train_loader, privacy_engine = make_private(
                 local_model, optimizer, self.train_loader, actual_dp_config
             )
         else:
-            optimizer = torch.optim.Adam(local_model.parameters(), lr=1e-3)
             train_loader = self.train_loader
             privacy_engine = None
 
@@ -179,7 +192,8 @@ def create_client_fn(
             val_loader=val_loader,
             local_epochs=local_epochs,
             dp_config=client_dp_config,
-            device=device
+            device=device,
+            model_name=model_name
         )
         return client.to_client()
     return client_fn
