@@ -138,8 +138,14 @@ async function initSymptomChecker() {
     analyzeBtn.addEventListener('click', async () => {
         setLoading(analyzeBtn, true);
         try {
-            const results = await window.api.predictSymptoms(Array.from(selectedSymptoms));
-            displayResults(results.disease, results.confidence, results.top_predictions, results);
+            // Prefer on-device inference (no symptom data leaves the browser).
+            // Fall back to the API only if the bundled model file is missing.
+            const local = window.localModelReady ? await window.localModelReady : null;
+            const results = local
+                ? local.predict(Array.from(selectedSymptoms))
+                : await window.api.predictSymptoms(Array.from(selectedSymptoms));
+            const primary = results.primary || { disease: results.disease, confidence: results.confidence };
+            displayResults(primary.disease, primary.confidence, results.top_predictions, results);
         } catch (error) {
             alert((error.message === 'Network error' || error.message === 'Request timed out') ? 'Could not reach the analysis server. This demo needs a backend running -- see the project README for setup.' : 'Analysis failed: ' + error.message);
         } finally {
@@ -417,6 +423,21 @@ function initRespiratoryAnalysis() {
 async function initPrivacyDashboard() {
     async function updateData() {
         try {
+            // The bundled on-device model is the source of truth for the
+            // dashboard, so ε, round and accuracy describe the weights in use.
+            const local = window.localModelReady ? await window.localModelReady : null;
+            if (local) {
+                const m = local.metrics;
+                document.getElementById('epsilonValue').textContent = `ε = ${m.epsilon.toFixed(2)}`;
+                document.getElementById('epsilonFill').style.width = `${Math.min((m.epsilon / 10.0) * 100, 100)}%`;
+                const note = document.getElementById('epsilonNote');
+                if (note) note.textContent = `DP-SGD, Opacus-calibrated (δ = ${m.delta})`;
+                document.getElementById('currentRound').textContent = m.rounds;
+                document.getElementById('totalRounds').textContent = m.rounds;
+                document.getElementById('globalAccuracy').textContent = (m.test_accuracy * 100).toFixed(1);
+                return;
+            }
+
             const [status, privacy] = await Promise.all([
                 window.api.getModelStatus(),
                 window.api.getPrivacyBudget()
