@@ -91,7 +91,18 @@ class _SafeInvertedResidual(InvertedResidual):
         return result
 
 
-def new_model():
+def augment(x):
+    """Flips and 90-degree rotations: label-preserving for dermoscopy images."""
+    if torch.rand(1).item() < 0.5:
+        x = torch.flip(x, dims=[3])
+    if torch.rand(1).item() < 0.5:
+        x = torch.flip(x, dims=[2])
+    return torch.rot90(x, int(torch.randint(4, (1,)).item()), dims=[2, 3])
+
+
+def new_model(dp):
+    """BatchNorm is kept for the non-DP baseline (pretrained statistics survive).
+    Only DP runs convert to GroupNorm, because Opacus cannot handle BatchNorm."""
     torch.manual_seed(SEED)
     m = SkinCNN(num_classes=len(CLASSES))
     # Opacus cannot handle in-place activations, in-place residual adds, or BatchNorm.
@@ -100,7 +111,7 @@ def new_model():
             mod.inplace = False
         if type(mod) is InvertedResidual:
             mod.__class__ = _SafeInvertedResidual
-    return ModuleValidator.fix(m)
+    return ModuleValidator.fix(m) if dp else m
 
 
 def dirichlet_partition(y, num_clients, alpha, seed=SEED):
@@ -130,11 +141,14 @@ def evaluate(model, X, y, bs=128):
     return float((p == t).mean()), float(f1_score(t, p, average="macro")), sum(losses) / len(t)
 
 
-def local_train(global_model, Xc, yc, epochs, bs, lr, dp_cfg, gen):
+def local_train(global_model, Xc, yc, args, dp_cfg, gen, class_w):
     """One client's local round. With dp_cfg enabled, runs Opacus DP-SGD."""
     model = copy.deepcopy(global_model)
     model.train()
-    opt = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+    if args.optimizer == "adam":
+        opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    else:
+        opt = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
     loader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(Xc, yc), batch_size=bs, shuffle=True, generator=gen)
     if dp_cfg is not None and dp_cfg.enabled:
@@ -142,10 +156,12 @@ def local_train(global_model, Xc, yc, epochs, bs, lr, dp_cfg, gen):
         model, opt, loader = pe.make_private(
             module=model, optimizer=opt, data_loader=loader,
             noise_multiplier=dp_cfg.noise_multiplier, max_grad_norm=dp_cfg.max_grad_norm)
-    for _ in range(epochs):
+    for _ in range(args.local_epochs):
         for xb, yb in loader:
+            if args.augment:
+                xb = augment(xb)
             opt.zero_grad()
-            loss = F.cross_entropy(model(normalize(xb)), yb)
+            loss = F.cross_entropy(model(normalize(xb)), yb, weight=class_w)
             loss.backward()
             opt.step()
     module = model._module if hasattr(model, "_module") else model
@@ -160,7 +176,11 @@ def fedavg(states, weights):
 def run(tag, epsilon, args, Xtr, ytr, Xte, yte, parts, log):
     print(f"\n=== {tag} ===", flush=True)
     gen = torch.Generator().manual_seed(SEED)
-    global_model = new_model()
+    global_model = new_model(dp=epsilon is not None)
+    class_w = None
+    if args.class_weighted:
+        counts = torch.bincount(ytr, minlength=len(CLASSES)).float()
+        class_w = (counts.sum() / (len(CLASSES) * counts)).clamp(max=10.0)
     curve = []
     for r in range(args.rounds):
         t0 = time.time()
@@ -175,8 +195,7 @@ def run(tag, epsilon, args, Xtr, ytr, Xte, yte, parts, log):
                     epsilon=epsilon, delta=args.delta, max_grad_norm=1.0,
                     num_train_samples=len(idx),
                     epochs=args.local_epochs * args.rounds, batch_size=args.batch_size)
-            st = local_train(global_model, Xtr[idx], ytr[idx], args.local_epochs,
-                             args.batch_size, args.lr, dp_cfg, gen)
+            st = local_train(global_model, Xtr[idx], ytr[idx], args, dp_cfg, gen, class_w)
             states.append(st)
             weights.append(len(idx))
         global_model.load_state_dict(fedavg(states, weights), strict=False)
@@ -194,7 +213,10 @@ def main():
     ap.add_argument("--rounds", type=int, default=10)
     ap.add_argument("--local_epochs", type=int, default=1)
     ap.add_argument("--batch_size", type=int, default=32)
-    ap.add_argument("--lr", type=float, default=0.01)
+    ap.add_argument("--lr", type=float, default=3e-4)
+    ap.add_argument("--optimizer", choices=["adam", "sgd"], default="adam")
+    ap.add_argument("--class_weighted", action=argparse.BooleanOptionalAction, default=True)
+    ap.add_argument("--augment", action=argparse.BooleanOptionalAction, default=True)
     ap.add_argument("--clients", type=int, default=10)
     ap.add_argument("--alpha", type=float, default=0.5)
     ap.add_argument("--delta", type=float, default=1e-5)
