@@ -35,4 +35,7 @@ Statuses: **Met** (code reproduces it), **Fixable** (code change needed), **Erra
 - **Flower path** (`server/run_simulation.py`, default `--local_epochs 3`, `--rounds 20`): reached about 58% on the symptom MLP. This is not the configuration in the paper and is not what Table II reports.
 - **Browser inference (symptom branch):** done. `client-app/model.js` runs the eps=5.0 model on-device. Parity with PyTorch: 984/984 argmax matches, max logit difference 1.7e-5 (`node tests/js/model_parity.test.js`). The dashboard reads ε, round, and accuracy from the same file, so the displayed values match the shipped weights.
 - **Android:** `model.js` and the model file are copied into the assets, but `android-app/.../app.js` is not wired to use them yet. Android still calls the API.
-- **Skin and respiratory branches:** not trained. Out of scope for this pass.
+- **Skin (HAM10000), centralized:** pretrained MobileNetV3-Small with BatchNorm kept. Adam, lr 3e-4, class-weighted loss, flip/rotation augmentation, cosine decay, 40 epochs. Test accuracy 86.0%, macro-F1 0.80 (`benchmarks/results/skin/sanity_adam_cosine_final.json`). Split is random, not grouped by lesion, so this may be optimistic. Target of about 90% not reached.
+- **Skin, federated and DP:** earlier runs collapsed to the majority class under the GroupNorm conversion and SGD lr 0.01. Not yet redone with the centralized settings. No federated skin claim is supported yet.
+- **Respiratory (ICBHI):** `benchmarks/respiratory_federated_experiment.py` written and started. No results yet.
+- **Skin and respiratory in the browser:** not exported. The page shows the "research prototype" notice.
