@@ -26,12 +26,49 @@ import torch.nn.functional as F
 from sklearn.metrics import f1_score
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
 import pandas as pd
+from PIL import Image
 
 from models.skin_cnn import SkinCNN
 
 SEED = 42
 CACHE = PROJECT_ROOT / "data" / "processed" / "ham10000_224.pt"
+CACHE_CROPPED = PROJECT_ROOT / "data" / "processed" / "ham10000_224_cropped.pt"
 META = PROJECT_ROOT / "data" / "raw" / "ham10000_meta" / "HAM10000_metadata.csv"
+HAM_DIR = PROJECT_ROOT / "data" / "raw" / "ham10000"
+SKIN_CLASSES = ["MEL", "NV", "BCC", "AKIEC", "BKL", "DF", "VASC"]
+
+
+def build_cropped_cache():
+    """Crop each image to its lesion-mask bounding box (with a margin) before
+    resizing, instead of resizing the whole frame. Removes background
+    skin/hair as noise. Builds its own cache so the uncropped cache (and any
+    run using it) is untouched."""
+    gt = pd.read_csv(HAM_DIR / "GroundTruth.csv")
+    ids = gt["image"].tolist()
+    labels = gt[SKIN_CLASSES].values.argmax(axis=1)
+    arr = np.empty((len(ids), 3, 224, 224), dtype=np.uint8)
+    for i, img_id in enumerate(ids):
+        img = Image.open(HAM_DIR / "images" / f"{img_id}.jpg").convert("RGB")
+        mask_path = HAM_DIR / "masks" / f"{img_id}_segmentation.png"
+        if mask_path.exists():
+            m = np.array(Image.open(mask_path))
+            ys, xs = np.where(m > 127)
+            if len(xs) > 0:
+                w, h = img.size
+                sx, sy = w / m.shape[1], h / m.shape[0]
+                x0, x1 = xs.min() * sx, xs.max() * sx
+                y0, y1 = ys.min() * sy, ys.max() * sy
+                pad_x, pad_y = (x1 - x0) * 0.15, (y1 - y0) * 0.15
+                x0, y0 = max(0, x0 - pad_x), max(0, y0 - pad_y)
+                x1, y1 = min(w, x1 + pad_x), min(h, y1 + pad_y)
+                if x1 > x0 and y1 > y0:
+                    img = img.crop((x0, y0, x1, y1))
+        img = img.resize((224, 224), Image.BILINEAR)
+        arr[i] = np.asarray(img).transpose(2, 0, 1)
+    CACHE_CROPPED.parent.mkdir(parents=True, exist_ok=True)
+    cache = {"X": torch.from_numpy(arr), "ids": ids, "labels": labels}
+    torch.save(cache, CACHE_CROPPED)
+    return cache
 OUT_DIR = PROJECT_ROOT / "benchmarks" / "results" / "skin"
 MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
@@ -79,13 +116,19 @@ def main():
     ap.add_argument("--batch_size", type=int, default=32)
     ap.add_argument("--grouped", action=argparse.BooleanOptionalAction, default=True,
                     help="split by lesion_id (default); --no-grouped reproduces the old random split")
+    ap.add_argument("--crop_lesion", action="store_true",
+                    help="crop to the lesion mask's bounding box before resizing (builds its own cache)")
     ap.add_argument("--final_test", action="store_true",
                     help="evaluate on the held-out test split (do this once, for the chosen config)")
     args = ap.parse_args()
     opt_name, lr, weighted, aug = CONFIGS[args.config]
 
     torch.manual_seed(SEED); np.random.seed(SEED)
-    cache = torch.load(CACHE, weights_only=False)  # our own cache file (contains numpy labels)
+    if args.crop_lesion:
+        cache = (torch.load(CACHE_CROPPED, weights_only=False) if CACHE_CROPPED.exists()
+                 else build_cropped_cache())
+    else:
+        cache = torch.load(CACHE, weights_only=False)  # our own cache file (contains numpy labels)
     X, labels = cache["X"], np.asarray(cache["labels"])
     if args.grouped:
         # Split by lesion: several images of one lesion must never sit on both sides.
@@ -154,7 +197,7 @@ def main():
         print(f"TEST  acc={te_acc:.4f}  macro_f1={te_f1:.4f}", flush=True)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    tag = "grouped" if args.grouped else "random"
+    tag = ("grouped" if args.grouped else "random") + ("_cropped" if args.crop_lesion else "")
     out = OUT_DIR / f"sanity_{args.config}_{tag}{'_final' if args.final_test else ''}.json"
     out.write_text(json.dumps(result, indent=2))
     print("wrote", out, flush=True)

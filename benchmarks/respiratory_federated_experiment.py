@@ -67,6 +67,58 @@ def segments_for(wav_path):
     return np.stack(out)[:, None, :, :].astype(np.float32)
 
 
+def cycle_segments_for(wav_path, max_sec=2.5):
+    """Cut a recording at its ANNOTATED cycle boundaries (not arbitrary fixed
+    windows), label each cycle from its own crackle/wheeze flags, and produce
+    a fixed-size log-mel spectrogram per cycle by zero-padding/truncating the
+    waveform to max_sec before the mel transform."""
+    y, _ = librosa.load(wav_path, sr=SR)
+    txt = wav_path.with_suffix(".txt")
+    cyc = pd.read_csv(txt, sep=r"\s+", header=None, names=["start", "end", "crackle", "wheeze"])
+    target_len = int(SR * max_sec)
+    specs, labels = [], []
+    for row in cyc.itertuples(index=False):
+        s_i, e_i = int(row.start * SR), int(row.end * SR)
+        if e_i <= s_i:
+            continue
+        chunk = y[s_i:e_i]
+        chunk = (np.pad(chunk, (0, target_len - len(chunk))) if len(chunk) < target_len
+                 else chunk[:target_len])
+        mel = librosa.feature.melspectrogram(y=chunk, sr=SR, n_mels=N_MELS,
+                                             hop_length=target_len // N_FRAMES + 1)
+        mel = librosa.power_to_db(mel, ref=np.max)[:, :N_FRAMES]
+        if mel.shape[1] < N_FRAMES:
+            mel = np.pad(mel, ((0, 0), (0, N_FRAMES - mel.shape[1])))
+        mel = (mel - mel.mean()) / (mel.std() + 1e-6)
+        label = 3 if (row.crackle > 0 and row.wheeze > 0) else (2 if row.wheeze > 0 else (1 if row.crackle > 0 else 0))
+        specs.append(mel[None, :, :].astype(np.float32))
+        labels.append(label)
+    return specs, labels
+
+
+def build_cycle_dataset():
+    """Like build_dataset(), but one example per annotated breathing cycle
+    instead of per fixed 3 s window. Also returns a recording id per cycle,
+    so predictions can be aggregated back to the recording level."""
+    wavs = sorted(RAW.glob("*.wav"))
+    if not wavs:
+        raise FileNotFoundError(f"no wav files in {RAW}")
+    Xs, ys, pids, recs = [], [], [], []
+    for rec_id, wav in enumerate(wavs):
+        txt = wav.with_suffix(".txt")
+        if not txt.exists():
+            raise FileNotFoundError(f"missing annotation {txt}")
+        specs, labels = cycle_segments_for(wav)
+        patient = int(wav.name.split("_")[0])
+        Xs.extend(specs)
+        ys.extend(labels)
+        pids.extend([patient] * len(specs))
+        recs.extend([rec_id] * len(specs))
+    X = torch.from_numpy(np.stack(Xs))
+    y = torch.tensor(ys, dtype=torch.long)
+    return X, y, np.array(pids), np.array(recs)
+
+
 def build_dataset():
     wavs = sorted(RAW.glob("*.wav"))
     if not wavs:
