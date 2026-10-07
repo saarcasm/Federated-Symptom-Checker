@@ -24,6 +24,7 @@ import torch.nn.functional as F
 from sklearn.metrics import f1_score
 
 from models.respiratory_cnn import RespiratoryCNN
+from models.skin_cnn import SkinCNN  # ImageNet-pretrained MobileNetV3-Small backbone
 sys.path.insert(0, str(PROJECT_ROOT / "benchmarks"))
 from respiratory_federated_experiment import (
     build_dataset, patient_split, evaluate, CLASSES, SEED)
@@ -37,7 +38,36 @@ CONFIGS = {
     "adam_plain":    ("adam", 1e-3, False),
     "adam_weighted": ("adam", 1e-3, True),
     "adam_lowlr":    ("adam", 3e-4, True),
+    # ImageNet-pretrained MobileNetV3-Small, same backbone as the skin model,
+    # applied to the mel spectrograms (replicated to 3 channels, resized to
+    # 224, ImageNet-normalized). RespiratoryCNN has no pretraining at all;
+    # this tests whether transferred visual features help here.
+    "pretrained":    ("adam", 3e-4, True),
 }
+
+IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+
+
+def to_pretrained_input(x):
+    """[B,1,128,128] standardized log-mel -> [B,3,224,224] ImageNet-ready."""
+    lo = x.amin(dim=(1, 2, 3), keepdim=True)
+    hi = x.amax(dim=(1, 2, 3), keepdim=True)
+    x = (x - lo) / (hi - lo + 1e-6)
+    x = x.repeat(1, 3, 1, 1)
+    x = F.interpolate(x, size=224, mode="bilinear", align_corners=False)
+    return (x - IMAGENET_MEAN) / IMAGENET_STD
+
+
+@torch.inference_mode()
+def evaluate_pretrained(model, X, y, bs=64):
+    model.eval()
+    preds = []
+    for s in range(0, len(X), bs):
+        preds.append(model(to_pretrained_input(X[s:s + bs])).argmax(1))
+    p = torch.cat(preds).numpy()
+    t = y.numpy()
+    return float((p == t).mean()), float(f1_score(t, p, average="macro")), 0.0
 
 
 def load_segments():
@@ -78,8 +108,9 @@ def main():
     print(f"fit={len(yf)} val={len(yv)} test={len(idx_te)}", flush=True)
     print("fit class counts:", torch.bincount(yf, minlength=4).tolist(), flush=True)
 
+    pretrained = args.config == "pretrained"
     torch.manual_seed(SEED)
-    model = RespiratoryCNN(num_classes=len(CLASSES))
+    model = SkinCNN(num_classes=len(CLASSES)) if pretrained else RespiratoryCNN(num_classes=len(CLASSES))
     opt = (torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9) if opt_name == "sgd"
            else torch.optim.Adam(model.parameters(), lr=lr))
 
@@ -96,18 +127,19 @@ def main():
         perm = torch.randperm(len(yf))
         for s in range(0, len(perm), args.batch_size):
             b = perm[s:s + args.batch_size]
-            loss = F.cross_entropy(model(Xf[b]), yf[b], weight=weights)
+            xb = to_pretrained_input(Xf[b]) if pretrained else Xf[b]
+            loss = F.cross_entropy(model(xb), yf[b], weight=weights)
             opt.zero_grad()
             loss.backward()
             opt.step()
-        va_acc, va_f1, _ = evaluate(model, Xv, yv)
+        va_acc, va_f1, _ = (evaluate_pretrained if pretrained else evaluate)(model, Xv, yv)
         history.append({"epoch": ep + 1, "val_acc": va_acc, "val_macro_f1": va_f1})
         print(f"epoch {ep+1:2d}  loss={loss.item():.3f}  val_acc={va_acc:.4f}  "
               f"val_macro_f1={va_f1:.4f}  ({time.time()-t0:.0f}s)", flush=True)
 
     result = {"config": args.config, "history": history}
     if args.final_test:
-        te_acc, te_f1, _ = evaluate(model, X[idx_te], y[idx_te])
+        te_acc, te_f1, _ = (evaluate_pretrained if pretrained else evaluate)(model, X[idx_te], y[idx_te])
         result["test_acc"], result["test_macro_f1"] = te_acc, te_f1
         print(f"TEST  acc={te_acc:.4f}  macro_f1={te_f1:.4f}", flush=True)
 
