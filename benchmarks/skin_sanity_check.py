@@ -24,12 +24,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from sklearn.metrics import f1_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
+import pandas as pd
 
 from models.skin_cnn import SkinCNN
 
 SEED = 42
 CACHE = PROJECT_ROOT / "data" / "processed" / "ham10000_224.pt"
+META = PROJECT_ROOT / "data" / "raw" / "ham10000_meta" / "HAM10000_metadata.csv"
 OUT_DIR = PROJECT_ROOT / "benchmarks" / "results" / "skin"
 MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
@@ -41,6 +43,7 @@ CONFIGS = {
     "adam_weighted":  ("adam", 1e-3, True,  True),
     "adam_lowlr":     ("adam", 3e-4, True,  True),
     "adam_cosine":    ("adam", 3e-4, True,  True),  # same as adam_lowlr, with cosine LR decay
+    "adam_cosine60":  ("adam", 3e-4, True,  True),  # cosine, longer schedule
 }
 
 
@@ -74,6 +77,8 @@ def main():
     ap.add_argument("--config", choices=list(CONFIGS), required=True)
     ap.add_argument("--epochs", type=int, default=6)
     ap.add_argument("--batch_size", type=int, default=32)
+    ap.add_argument("--grouped", action=argparse.BooleanOptionalAction, default=True,
+                    help="split by lesion_id (default); --no-grouped reproduces the old random split")
     ap.add_argument("--final_test", action="store_true",
                     help="evaluate on the held-out test split (do this once, for the chosen config)")
     args = ap.parse_args()
@@ -82,10 +87,21 @@ def main():
     torch.manual_seed(SEED); np.random.seed(SEED)
     cache = torch.load(CACHE, weights_only=False)  # our own cache file (contains numpy labels)
     X, labels = cache["X"], np.asarray(cache["labels"])
-    idx_tr, idx_te = train_test_split(np.arange(len(labels)), test_size=0.2,
-                                      stratify=labels, random_state=SEED)
-    idx_fit, idx_val = train_test_split(idx_tr, test_size=0.1,
-                                        stratify=labels[idx_tr], random_state=SEED)
+    if args.grouped:
+        # Split by lesion: several images of one lesion must never sit on both sides.
+        meta = pd.read_csv(META)
+        lesion = dict(zip(meta["image_id"], meta["lesion_id"]))
+        groups = np.array([lesion[i] for i in cache["ids"]])
+        gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=SEED)
+        idx_tr, idx_te = next(gss.split(np.zeros(len(labels)), labels, groups))
+        gss2 = GroupShuffleSplit(n_splits=1, test_size=0.1, random_state=SEED)
+        a, b = next(gss2.split(np.zeros(len(idx_tr)), labels[idx_tr], groups[idx_tr]))
+        idx_fit, idx_val = idx_tr[a], idx_tr[b]
+    else:
+        idx_tr, idx_te = train_test_split(np.arange(len(labels)), test_size=0.2,
+                                          stratify=labels, random_state=SEED)
+        idx_fit, idx_val = train_test_split(idx_tr, test_size=0.1,
+                                            stratify=labels[idx_tr], random_state=SEED)
     y = torch.tensor(labels, dtype=torch.long)
 
     Xf, yf = X[idx_fit], y[idx_fit]
@@ -107,7 +123,7 @@ def main():
         print("class weights:", [round(w, 2) for w in weights.tolist()], flush=True)
 
     sched = None
-    if args.config == "adam_cosine":
+    if args.config.startswith("adam_cosine"):
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
 
     history = []
@@ -138,7 +154,8 @@ def main():
         print(f"TEST  acc={te_acc:.4f}  macro_f1={te_f1:.4f}", flush=True)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / f"sanity_{args.config}{'_final' if args.final_test else ''}.json"
+    tag = "grouped" if args.grouped else "random"
+    out = OUT_DIR / f"sanity_{args.config}_{tag}{'_final' if args.final_test else ''}.json"
     out.write_text(json.dumps(result, indent=2))
     print("wrote", out, flush=True)
 
