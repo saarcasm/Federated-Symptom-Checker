@@ -151,6 +151,8 @@ def main():
                     help="test-time augmentation at final evaluation: average predictions over flips/rotations")
     ap.add_argument("--save_checkpoint", action="store_true",
                     help="save the trained model's state_dict alongside the result json")
+    ap.add_argument("--resume", action="store_true",
+                    help="resume from the _inprogress checkpoint for this exact config/tag, if one exists")
     ap.add_argument("--final_test", action="store_true",
                     help="evaluate on the held-out test split (do this once, for the chosen config)")
     args = ap.parse_args()
@@ -202,12 +204,23 @@ def main():
         weights = (counts.sum() / (7 * counts)).clamp(max=10.0)
         print("class weights:", [round(w, 2) for w in weights.tolist()], flush=True)
 
-    sched = None
-    if args.config.startswith("adam_cosine"):
-        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
+    tag = ("grouped" if args.grouped else "random") + ("_cropped" if args.crop_lesion else "") + ("_isic2019" if args.extended_isic else "")
+    ckpt_path = OUT_DIR / f"sanity_{args.config}_{tag}_inprogress.pt"
+    hist_path = OUT_DIR / f"sanity_{args.config}_{tag}_inprogress_history.json"
 
     history = []
-    for ep in range(args.epochs):
+    start_epoch = 0
+    if args.resume and ckpt_path.exists() and hist_path.exists():
+        model.load_state_dict(torch.load(ckpt_path, weights_only=True))
+        history = json.loads(hist_path.read_text())
+        start_epoch = history[-1]["epoch"]
+        print(f"resumed from {ckpt_path} at epoch {start_epoch}", flush=True)
+
+    sched = None
+    if args.config.startswith("adam_cosine"):
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs, last_epoch=start_epoch - 1)
+
+    for ep in range(start_epoch, args.epochs):
         t0 = time.time()
         model.train()
         perm = torch.randperm(len(yf))
@@ -226,6 +239,13 @@ def main():
         history.append({"epoch": ep + 1, "val_acc": va_acc, "val_macro_f1": va_f1})
         print(f"epoch {ep+1}  loss={loss.item():.3f}  val_acc={va_acc:.4f}  val_macro_f1={va_f1:.4f}  "
               f"({time.time()-t0:.0f}s)", flush=True)
+        if args.save_checkpoint:
+            # Save after every epoch (overwriting), not just at the end -- a kill late in
+            # training should cost at most the last epoch, not the whole run (use --resume
+            # to continue from here instead of restarting from scratch).
+            OUT_DIR.mkdir(parents=True, exist_ok=True)
+            torch.save(model.state_dict(), ckpt_path)
+            hist_path.write_text(json.dumps(history, indent=2))
 
     result = {"config": args.config, "history": history}
     if args.final_test:
@@ -238,7 +258,6 @@ def main():
             print(f"TEST (TTA)  acc={tta_acc:.4f}  macro_f1={tta_f1:.4f}", flush=True)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    tag = ("grouped" if args.grouped else "random") + ("_cropped" if args.crop_lesion else "") + ("_isic2019" if args.extended_isic else "")
     out = OUT_DIR / f"sanity_{args.config}_{tag}{'_final' if args.final_test else ''}.json"
     out.write_text(json.dumps(result, indent=2))
     print("wrote", out, flush=True)
