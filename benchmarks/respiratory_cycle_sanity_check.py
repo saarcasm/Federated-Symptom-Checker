@@ -120,6 +120,8 @@ def main():
                     help="test-time augmentation at final evaluation: average predictions over small time-shifts")
     ap.add_argument("--save_checkpoint", action="store_true",
                     help="save the trained model's state_dict alongside the result json")
+    ap.add_argument("--resume", action="store_true",
+                    help="resume from the _inprogress checkpoint for this config, if one exists")
     args = ap.parse_args()
     opt_name, lr, weighted, pretrained = CONFIGS[args.config]
 
@@ -152,8 +154,17 @@ def main():
         weights = (counts.sum() / (4 * counts)).clamp(max=10.0)
         print("class weights:", [round(w, 2) for w in weights.tolist()], flush=True)
 
+    ckpt_path = OUT_DIR / f"cycle_sanity_{args.config}_inprogress.pt"
+    hist_path = OUT_DIR / f"cycle_sanity_{args.config}_inprogress_history.json"
     history = []
-    for ep in range(args.epochs):
+    start_epoch = 0
+    if args.resume and ckpt_path.exists() and hist_path.exists():
+        model.load_state_dict(torch.load(ckpt_path, weights_only=True))
+        history = json.loads(hist_path.read_text())
+        start_epoch = history[-1]["epoch"]
+        print(f"resumed from {ckpt_path} at epoch {start_epoch}", flush=True)
+
+    for ep in range(start_epoch, args.epochs):
         t0 = time.time()
         model.train()
         perm = torch.randperm(len(yf))
@@ -170,6 +181,10 @@ def main():
         history.append({"epoch": ep + 1, "val_acc": va_acc, "val_macro_f1": va_f1})
         print(f"epoch {ep+1:2d}  loss={loss.item():.3f}  val_acc={va_acc:.4f}  "
               f"val_macro_f1={va_f1:.4f}  ({time.time()-t0:.0f}s)", flush=True)
+        if args.save_checkpoint:
+            OUT_DIR.mkdir(parents=True, exist_ok=True)
+            torch.save(model.state_dict(), ckpt_path)
+            hist_path.write_text(json.dumps(history, indent=2))
 
     result = {"config": args.config, "history": history}
     if args.final_test:
