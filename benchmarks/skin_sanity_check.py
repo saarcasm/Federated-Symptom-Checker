@@ -109,6 +109,31 @@ def evaluate(model, X, y, bs=128):
     return float((p == t).mean()), float(f1_score(t, p, average="macro"))
 
 
+@torch.inference_mode()
+def evaluate_tta(model, X, y, bs=128, views=(0, 1, 2, 3)):
+    """Test-time augmentation: average softmax over the same label-preserving
+    flips/rotations used in training augmentation, then take the argmax.
+    Standard technique -- does not touch labels or retrain anything."""
+    model.eval()
+    probs_sum = None
+    for v in views:
+        batch_probs = []
+        for s in range(0, len(X), bs):
+            xb = normalize(X[s:s + bs])
+            if v == 1:
+                xb = torch.flip(xb, dims=[3])
+            elif v == 2:
+                xb = torch.flip(xb, dims=[2])
+            elif v == 3:
+                xb = torch.rot90(xb, 1, dims=[2, 3])
+            batch_probs.append(F.softmax(model(xb), dim=1))
+        probs = torch.cat(batch_probs)
+        probs_sum = probs if probs_sum is None else probs_sum + probs
+    p = (probs_sum / len(views)).argmax(1).numpy()
+    t = y.numpy()
+    return float((p == t).mean()), float(f1_score(t, p, average="macro"))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", choices=list(CONFIGS), required=True)
@@ -118,6 +143,10 @@ def main():
                     help="split by lesion_id (default); --no-grouped reproduces the old random split")
     ap.add_argument("--crop_lesion", action="store_true",
                     help="crop to the lesion mask's bounding box before resizing (builds its own cache)")
+    ap.add_argument("--tta", action="store_true",
+                    help="test-time augmentation at final evaluation: average predictions over flips/rotations")
+    ap.add_argument("--save_checkpoint", action="store_true",
+                    help="save the trained model's state_dict alongside the result json")
     ap.add_argument("--final_test", action="store_true",
                     help="evaluate on the held-out test split (do this once, for the chosen config)")
     args = ap.parse_args()
@@ -195,12 +224,20 @@ def main():
         te_acc, te_f1 = evaluate(model, X[idx_te], y[idx_te])
         result["test_acc"], result["test_macro_f1"] = te_acc, te_f1
         print(f"TEST  acc={te_acc:.4f}  macro_f1={te_f1:.4f}", flush=True)
+        if args.tta:
+            tta_acc, tta_f1 = evaluate_tta(model, X[idx_te], y[idx_te])
+            result["test_acc_tta"], result["test_macro_f1_tta"] = tta_acc, tta_f1
+            print(f"TEST (TTA)  acc={tta_acc:.4f}  macro_f1={tta_f1:.4f}", flush=True)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     tag = ("grouped" if args.grouped else "random") + ("_cropped" if args.crop_lesion else "")
     out = OUT_DIR / f"sanity_{args.config}_{tag}{'_final' if args.final_test else ''}.json"
     out.write_text(json.dumps(result, indent=2))
     print("wrote", out, flush=True)
+    if args.save_checkpoint:
+        ckpt = out.with_suffix(".pt")
+        torch.save(model.state_dict(), ckpt)
+        print("wrote", ckpt, flush=True)
 
 
 if __name__ == "__main__":
