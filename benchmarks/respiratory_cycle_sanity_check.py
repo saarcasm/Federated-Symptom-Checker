@@ -72,6 +72,25 @@ def predict(model, X, pretrained, bs=64):
     return torch.cat(preds).numpy()
 
 
+@torch.inference_mode()
+def predict_tta(model, X, pretrained, bs=64, shifts=(0, 8, -8, 16, -16)):
+    """Test-time augmentation for spectrograms: average softmax over small
+    circular time-shifts (the audio analogue of the flips used for images --
+    a cough/crackle/wheeze is still the same event a few frames earlier or
+    later). Does not touch labels or retrain anything."""
+    model.eval()
+    probs_sum = None
+    for shift in shifts:
+        Xs = torch.roll(X, shifts=shift, dims=3) if shift else X
+        batch_probs = []
+        for s in range(0, len(Xs), bs):
+            xb = to_pretrained_input(Xs[s:s + bs]) if pretrained else Xs[s:s + bs]
+            batch_probs.append(F.softmax(model(xb), dim=1))
+        probs = torch.cat(batch_probs)
+        probs_sum = probs if probs_sum is None else probs_sum + probs
+    return (probs_sum / len(shifts)).argmax(1).numpy()
+
+
 def cycle_and_recording_metrics(preds, y_true, rec_ids):
     cyc_acc = float((preds == y_true).mean())
     cyc_f1 = float(f1_score(y_true, preds, average="macro"))
@@ -97,6 +116,10 @@ def main():
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--batch_size", type=int, default=32)
     ap.add_argument("--final_test", action="store_true")
+    ap.add_argument("--tta", action="store_true",
+                    help="test-time augmentation at final evaluation: average predictions over small time-shifts")
+    ap.add_argument("--save_checkpoint", action="store_true",
+                    help="save the trained model's state_dict alongside the result json")
     args = ap.parse_args()
     opt_name, lr, weighted, pretrained = CONFIGS[args.config]
 
@@ -156,11 +179,23 @@ def main():
                       test_recording_acc=rec_acc, test_recording_macro_f1=rec_f1)
         print(f"TEST (cycle-level)      acc={cyc_acc:.4f}  macro_f1={cyc_f1:.4f}", flush=True)
         print(f"TEST (recording-level)  acc={rec_acc:.4f}  macro_f1={rec_f1:.4f}", flush=True)
+        if args.tta:
+            preds_tta = predict_tta(model, X[idx_te], pretrained)
+            t_cyc_acc, t_cyc_f1, t_rec_acc, t_rec_f1 = cycle_and_recording_metrics(
+                preds_tta, y[idx_te].numpy(), rec[idx_te])
+            result.update(test_cycle_acc_tta=t_cyc_acc, test_cycle_macro_f1_tta=t_cyc_f1,
+                          test_recording_acc_tta=t_rec_acc, test_recording_macro_f1_tta=t_rec_f1)
+            print(f"TEST (cycle-level, TTA)      acc={t_cyc_acc:.4f}  macro_f1={t_cyc_f1:.4f}", flush=True)
+            print(f"TEST (recording-level, TTA)  acc={t_rec_acc:.4f}  macro_f1={t_rec_f1:.4f}", flush=True)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / f"cycle_sanity_{args.config}{'_final' if args.final_test else ''}.json"
     out.write_text(json.dumps(result, indent=2))
     print("wrote", out, flush=True)
+    if args.save_checkpoint:
+        ckpt = out.with_suffix(".pt")
+        torch.save(model.state_dict(), ckpt)
+        print("wrote", ckpt, flush=True)
 
 
 if __name__ == "__main__":
