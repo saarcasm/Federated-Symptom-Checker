@@ -33,8 +33,15 @@ HAM_DIR = PROJECT_ROOT / "data" / "raw" / "ham10000"
 ISIC_GT = PROJECT_ROOT / "data" / "raw" / "isic2019" / "ISIC_2019_Training_GroundTruth.csv"
 ISIC_IMG_DIR = PROJECT_ROOT / "data" / "raw" / "isic2019" / "train-image" / "image"
 OUT = PROJECT_ROOT / "data" / "processed" / "ham10000_isic2019_224.pt"
+# Note: re-running this script overwrites OUT with the current cap. If this version's
+# cap differs from a previously saved cache, delete the old file first so stale data
+# isn't silently reused.
 SKIN_CLASSES = ["MEL", "NV", "BCC", "AKIEC", "BKL", "DF", "VASC"]
-NV_CAP = 1000  # NV is already 67% of HAM10000; add a little for diversity, not more imbalance
+CLASS_CAP = 1000  # cap EVERY class's extra contribution (not just NV), so the combined
+                   # cache stays small enough to safely fit in memory on this machine.
+                   # DF/VASC/AKIEC are all well under this cap anyway, so the classes that
+                   # actually needed rebalancing are unaffected; this only trims how much
+                   # extra MEL/BCC/BKL/NV (already reasonably represented) gets added.
 SEED = 42
 
 
@@ -49,13 +56,14 @@ def main():
     usable["label"] = usable[SKIN_CLASSES].values.argmax(axis=1)
 
     rng = np.random.default_rng(SEED)
-    nv_idx = usable.index[usable["label"] == SKIN_CLASSES.index("NV")]
-    if len(nv_idx) > NV_CAP:
-        drop = rng.choice(nv_idx, size=len(nv_idx) - NV_CAP, replace=False)
-        usable = usable.drop(index=drop)
+    for cls_idx in range(len(SKIN_CLASSES)):
+        cls_rows = usable.index[usable["label"] == cls_idx]
+        if len(cls_rows) > CLASS_CAP:
+            drop = rng.choice(cls_rows, size=len(cls_rows) - CLASS_CAP, replace=False)
+            usable = usable.drop(index=drop)
 
     print(f"HAM10000: {len(ham_ids)} images")
-    print(f"ISIC 2019 extra (deduped, no SCC/UNK, NV capped at {NV_CAP}): {len(usable)} images")
+    print(f"ISIC 2019 extra (deduped, no SCC/UNK, each class capped at {CLASS_CAP}): {len(usable)} images")
     counts = pd.Series(SKIN_CLASSES)[usable["label"]].value_counts()
     print("extra class counts:\n", counts)
 
