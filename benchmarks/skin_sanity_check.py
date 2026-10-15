@@ -33,6 +33,7 @@ from models.skin_cnn import SkinCNN
 SEED = 42
 CACHE = PROJECT_ROOT / "data" / "processed" / "ham10000_224.pt"
 CACHE_CROPPED = PROJECT_ROOT / "data" / "processed" / "ham10000_224_cropped.pt"
+CACHE_ISIC = PROJECT_ROOT / "data" / "processed" / "ham10000_isic2019_224.pt"
 META = PROJECT_ROOT / "data" / "raw" / "ham10000_meta" / "HAM10000_metadata.csv"
 HAM_DIR = PROJECT_ROOT / "data" / "raw" / "ham10000"
 SKIN_CLASSES = ["MEL", "NV", "BCC", "AKIEC", "BKL", "DF", "VASC"]
@@ -143,6 +144,9 @@ def main():
                     help="split by lesion_id (default); --no-grouped reproduces the old random split")
     ap.add_argument("--crop_lesion", action="store_true",
                     help="crop to the lesion mask's bounding box before resizing (builds its own cache)")
+    ap.add_argument("--extended_isic", action="store_true",
+                    help="train on HAM10000 + non-duplicate ISIC-2019 extras (run "
+                         "build_isic2019_extended_cache.py first); mutually exclusive with --crop_lesion")
     ap.add_argument("--tta", action="store_true",
                     help="test-time augmentation at final evaluation: average predictions over flips/rotations")
     ap.add_argument("--save_checkpoint", action="store_true",
@@ -153,7 +157,11 @@ def main():
     opt_name, lr, weighted, aug = CONFIGS[args.config]
 
     torch.manual_seed(SEED); np.random.seed(SEED)
-    if args.crop_lesion:
+    if args.extended_isic:
+        assert not args.crop_lesion, "--extended_isic and --crop_lesion are mutually exclusive"
+        assert CACHE_ISIC.exists(), "run benchmarks/build_isic2019_extended_cache.py first"
+        cache = torch.load(CACHE_ISIC, weights_only=False)
+    elif args.crop_lesion:
         cache = (torch.load(CACHE_CROPPED, weights_only=False) if CACHE_CROPPED.exists()
                  else build_cropped_cache())
     else:
@@ -163,7 +171,7 @@ def main():
         # Split by lesion: several images of one lesion must never sit on both sides.
         meta = pd.read_csv(META)
         lesion = dict(zip(meta["image_id"], meta["lesion_id"]))
-        groups = np.array([lesion[i] for i in cache["ids"]])
+        groups = np.array([lesion.get(i, i) for i in cache["ids"]])  # ISIC-2019 extras have no lesion_id -> each is its own group
         gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=SEED)
         idx_tr, idx_te = next(gss.split(np.zeros(len(labels)), labels, groups))
         gss2 = GroupShuffleSplit(n_splits=1, test_size=0.1, random_state=SEED)
@@ -230,7 +238,7 @@ def main():
             print(f"TEST (TTA)  acc={tta_acc:.4f}  macro_f1={tta_f1:.4f}", flush=True)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    tag = ("grouped" if args.grouped else "random") + ("_cropped" if args.crop_lesion else "")
+    tag = ("grouped" if args.grouped else "random") + ("_cropped" if args.crop_lesion else "") + ("_isic2019" if args.extended_isic else "")
     out = OUT_DIR / f"sanity_{args.config}_{tag}{'_final' if args.final_test else ''}.json"
     out.write_text(json.dumps(result, indent=2))
     print("wrote", out, flush=True)
