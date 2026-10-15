@@ -218,7 +218,9 @@ def main():
 
     sched = None
     if args.config.startswith("adam_cosine"):
-        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs, last_epoch=start_epoch - 1)
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
+        for _ in range(start_epoch):  # fast-forward when resuming (initial_lr isn't set
+            sched.step()               # on a fresh optimizer, so last_epoch=N at construction fails)
 
     for ep in range(start_epoch, args.epochs):
         t0 = time.time()
