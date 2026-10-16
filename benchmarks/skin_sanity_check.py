@@ -34,6 +34,7 @@ SEED = 42
 CACHE = PROJECT_ROOT / "data" / "processed" / "ham10000_224.pt"
 CACHE_CROPPED = PROJECT_ROOT / "data" / "processed" / "ham10000_224_cropped.pt"
 CACHE_ISIC = PROJECT_ROOT / "data" / "processed" / "ham10000_isic2019_224.pt"
+CACHE_ISIC_CROPPED = PROJECT_ROOT / "data" / "processed" / "ham10000_cropped_isic2019_224.pt"
 META = PROJECT_ROOT / "data" / "raw" / "ham10000_meta" / "HAM10000_metadata.csv"
 HAM_DIR = PROJECT_ROOT / "data" / "raw" / "ham10000"
 SKIN_CLASSES = ["MEL", "NV", "BCC", "AKIEC", "BKL", "DF", "VASC"]
@@ -159,8 +160,10 @@ def main():
     opt_name, lr, weighted, aug = CONFIGS[args.config]
 
     torch.manual_seed(SEED); np.random.seed(SEED)
-    if args.extended_isic:
-        assert not args.crop_lesion, "--extended_isic and --crop_lesion are mutually exclusive"
+    if args.extended_isic and args.crop_lesion:
+        assert CACHE_ISIC_CROPPED.exists(), "run benchmarks/build_isic2019_extended_cache.py --crop first"
+        cache = torch.load(CACHE_ISIC_CROPPED, weights_only=False)
+    elif args.extended_isic:
         assert CACHE_ISIC.exists(), "run benchmarks/build_isic2019_extended_cache.py first"
         cache = torch.load(CACHE_ISIC, weights_only=False)
     elif args.crop_lesion:

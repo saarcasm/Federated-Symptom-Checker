@@ -33,6 +33,7 @@ HAM_DIR = PROJECT_ROOT / "data" / "raw" / "ham10000"
 ISIC_GT = PROJECT_ROOT / "data" / "raw" / "isic2019" / "ISIC_2019_Training_GroundTruth.csv"
 ISIC_IMG_DIR = PROJECT_ROOT / "data" / "raw" / "isic2019" / "train-image" / "image"
 OUT = PROJECT_ROOT / "data" / "processed" / "ham10000_isic2019_224.pt"
+OUT_CROPPED = PROJECT_ROOT / "data" / "processed" / "ham10000_cropped_isic2019_224.pt"
 # Note: re-running this script overwrites OUT with the current cap. If this version's
 # cap differs from a previously saved cache, delete the old file first so stale data
 # isn't silently reused.
@@ -45,7 +46,28 @@ CLASS_CAP = 1000  # cap EVERY class's extra contribution (not just NV), so the c
 SEED = 42
 
 
-def main():
+def crop_to_mask(img, img_id):
+    """Crop to the lesion mask's bounding box (15% margin), same logic as
+    skin_sanity_check.py's build_cropped_cache. ISIC-2019 extras have no
+    mask, so only the HAM10000 portion of this cache is cropped."""
+    mask_path = HAM_DIR / "masks" / f"{img_id}_segmentation.png"
+    if not mask_path.exists():
+        return img
+    m = np.array(Image.open(mask_path))
+    ys, xs = np.where(m > 127)
+    if len(xs) == 0:
+        return img
+    w, h = img.size
+    sx, sy = w / m.shape[1], h / m.shape[0]
+    x0, x1 = xs.min() * sx, xs.max() * sx
+    y0, y1 = ys.min() * sy, ys.max() * sy
+    pad_x, pad_y = (x1 - x0) * 0.15, (y1 - y0) * 0.15
+    x0, y0 = max(0, x0 - pad_x), max(0, y0 - pad_y)
+    x1, y1 = min(w, x1 + pad_x), min(h, y1 + pad_y)
+    return img.crop((x0, y0, x1, y1)) if x1 > x0 and y1 > y0 else img
+
+
+def main(crop):
     ham_gt = pd.read_csv(HAM_DIR / "GroundTruth.csv")
     ham_ids = ham_gt["image"].tolist()
     ham_labels = ham_gt[SKIN_CLASSES].values.argmax(axis=1)
@@ -76,7 +98,10 @@ def main():
 
     arr = np.empty((len(all_ids), 3, 224, 224), dtype=np.uint8)
     for i, img_id in enumerate(ham_ids):
-        img = Image.open(HAM_DIR / "images" / f"{img_id}.jpg").convert("RGB").resize((224, 224), Image.BILINEAR)
+        img = Image.open(HAM_DIR / "images" / f"{img_id}.jpg").convert("RGB")
+        if crop:
+            img = crop_to_mask(img, img_id)
+        img = img.resize((224, 224), Image.BILINEAR)
         arr[i] = np.asarray(img).transpose(2, 0, 1)
         if i % 2000 == 0:
             print(f"HAM images: {i}/{len(ham_ids)}", flush=True)
@@ -89,10 +114,15 @@ def main():
         if j % 2000 == 0:
             print(f"ISIC extra images: {j}/{len(extra_ids)}", flush=True)
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"X": torch.from_numpy(arr), "ids": all_ids, "labels": all_labels}, OUT)
-    print("wrote", OUT)
+    out_path = OUT_CROPPED if crop else OUT
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"X": torch.from_numpy(arr), "ids": all_ids, "labels": all_labels}, out_path)
+    print("wrote", out_path)
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--crop", action="store_true",
+                    help="also crop the HAM10000 portion to its lesion mask bounding box")
+    main(crop=ap.parse_args().crop)
