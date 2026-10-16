@@ -245,9 +245,11 @@ def run_federated(epsilon=None, tag="fed"):
         curve.append(acc)
         print(f"round {r+1:2d}  acc={acc:.4f}  f1={f1:.4f}  loss={loss:.4f}")
     facc, ff1, floss = evaluate(global_model, X_test_t, y_test_t)
+    final_global_models[tag] = global_model
     return curve, facc, ff1, floss
 
 DELTA = 1e-5
+final_global_models = {}
 fed_curve, fed_acc, fed_f1, fed_loss = run_federated(epsilon=None, tag="FedAvg (no DP)")
 
 # ---------------------------------------------------------------------------
@@ -332,4 +334,37 @@ fig.savefig(OUT_DIR / "final_accuracy_bar.png")
 plt.close(fig)
 
 print("Saved plots to", OUT_DIR)
+
+# ---------------------------------------------------------------------------
+# 8. Export the eps=5.0 DP global model for in-browser inference
+#    (client-app/model/). Same weights as the Table II row for eps=5.0.
+# ---------------------------------------------------------------------------
+import json
+MODEL_EXPORT_DIR = PROJECT_ROOT / "client-app" / "model"
+MODEL_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+export_model = final_global_models["FedAvg+DP eps=5.0"]
+export_weights = {
+    name: tensor.detach().cpu().numpy().round(6).tolist()
+    for name, tensor in export_model.state_dict().items()
+}
+export_payload = {
+    "source": "benchmarks/real_comparison_experiment.py",
+    "config": {"epsilon": 5.0, "delta": DELTA, "rounds": ROUNDS,
+               "local_epochs": LOCAL_EPOCHS, "batch_size": BATCH_SIZE,
+               "num_clients": NUM_CLIENTS, "alpha": ALPHA, "seed": SEED},
+    "test_accuracy": dp_results[5.0][0],
+    "test_macro_f1": dp_results[5.0][1],
+    "vocab": list(feature_cols),
+    "classes": classes,
+    "weights": export_weights,
+}
+with open(MODEL_EXPORT_DIR / "symptom_mlp_eps5.json", "w") as f:
+    json.dump(export_payload, f)
+print("Exported browser model ->", MODEL_EXPORT_DIR / "symptom_mlp_eps5.json")
+
+# Test set for parity checking the JS forward pass against PyTorch.
+with open(MODEL_EXPORT_DIR / "parity_test_set.json", "w") as f:
+    json.dump({"X": X_test.astype(int).tolist(),
+               "y_true": y_test.tolist(),
+               "y_torch_logits": export_model.eval()(X_test_t).detach().numpy().round(6).tolist()}, f)
 print("\nDONE.")
