@@ -121,8 +121,13 @@ function initSymptomChecker() {
     analyzeBtn.addEventListener('click', async () => {
         setLoading(analyzeBtn, true);
         try {
-            const results = await window.api.predictSymptoms(Array.from(selectedSymptoms));
-            displayResults(results.disease, results.confidence, results.top_predictions);
+            // On-device inference first; API only if the bundled model is missing.
+            const local = window.localModelReady ? await window.localModelReady : null;
+            const results = local
+                ? local.predict(Array.from(selectedSymptoms))
+                : await window.api.predictSymptoms(Array.from(selectedSymptoms));
+            const primary = results.primary || { disease: results.disease, confidence: results.confidence };
+            displayResults(primary.disease, primary.confidence, results.top_predictions);
         } catch (error) {
             alert('Analysis failed: ' + error.message);
         } finally {
@@ -330,6 +335,16 @@ function initRespiratoryAnalysis() {
 // --- Privacy Dashboard Telemetry ---
 async function initPrivacyDashboard() {
     try {
+        const local = window.localModelReady ? await window.localModelReady : null;
+        if (local) {
+            const m = local.metrics;
+            document.getElementById('epsilonValue').textContent = `ε = ${m.epsilon.toFixed(2)}`;
+            document.getElementById('epsilonFill').style.width = `${Math.min((m.epsilon / 10.0) * 100, 100)}%`;
+            document.getElementById('currentRound').textContent = m.rounds;
+            document.getElementById('totalRounds').textContent = m.rounds;
+            document.getElementById('globalAccuracy').textContent = (m.test_accuracy * 100).toFixed(1);
+            return;
+        }
         const [status, privacy] = await Promise.all([
             window.api.getModelStatus(),
             window.api.getPrivacyBudget()
