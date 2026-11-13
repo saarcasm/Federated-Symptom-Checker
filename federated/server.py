@@ -21,7 +21,8 @@ def create_server_config(
 def get_evaluate_fn(
     model_name: str,
     test_loader: torch.utils.data.DataLoader,
-    device: torch.device
+    device: torch.device,
+    model_kwargs: dict = None,
 ) -> Callable:
     """
     Returns a server-side evaluation function.
@@ -31,7 +32,7 @@ def get_evaluate_fn(
         parameters: fl.common.NDArrays,
         config: Dict[str, fl.common.Scalar],
     ) -> Optional[Tuple[float, Dict[str, fl.common.Scalar]]]:
-        model = get_model(model_name)
+        model = get_model(model_name, **(model_kwargs or {}))
         
         # Load parameters
         params_dict = zip(model.state_dict().keys(), parameters)

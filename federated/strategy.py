@@ -40,6 +40,7 @@ class FedSymptomStrategy(fl.server.strategy.FedAvg):
         mu: float = 0.01,
         track_communication: bool = True,
         checkpoint_dir: str = "checkpoints",
+        model_name: str = "model",
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -48,6 +49,9 @@ class FedSymptomStrategy(fl.server.strategy.FedAvg):
         self.track_communication = track_communication
         self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        # Namespaced by model_name so training multiple models against the
+        # same checkpoint_dir doesn't overwrite each other's saved weights.
+        self.model_name = model_name
         self.total_bytes_transferred = 0
 
     def aggregate_fit(
@@ -113,8 +117,8 @@ class FedSymptomStrategy(fl.server.strategy.FedAvg):
 
             # Save global checkpoint (pass dtype=object for list of arrays)
             arr_to_save = np.array(parameters_to_ndarrays(aggregated_parameters), dtype=object)
-            np.save(self.checkpoint_dir / f"global_model_round_{server_round}.npy", arr_to_save)
-            np.save(self.checkpoint_dir / "global_model_latest.npy", arr_to_save)
+            np.save(self.checkpoint_dir / f"global_model_{self.model_name}_round_{server_round}.npy", arr_to_save)
+            np.save(self.checkpoint_dir / f"global_model_{self.model_name}_latest.npy", arr_to_save)
 
             log.info(f"Round {server_round} aggregated metrics: {aggregated_metrics}")
 

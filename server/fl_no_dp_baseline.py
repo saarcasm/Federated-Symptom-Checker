@@ -6,7 +6,7 @@ import flwr as fl
 import torch
 import pandas as pd
 
-from data.partition import create_client_dataloaders
+from data.partition import create_client_dataloaders, create_tabular_test_loader
 from federated.dp_config import create_dp_config
 from federated.client import create_client_fn
 from federated.strategy import FedSymptomStrategy
@@ -53,7 +53,15 @@ def main():
         dl = torch.utils.data.DataLoader(DummyDataset(), batch_size=args.batch_size)
         client_dataloaders = [(dl, dl) for _ in range(args.num_clients)]
 
-    test_loader = client_dataloaders[0][1]
+    test_loader = create_tabular_test_loader(batch_size=args.batch_size) if args.dataset == 'tabular' else client_dataloaders[0][1]
+
+    model_kwargs = {}
+    if args.dataset == 'tabular':
+        test_ds = test_loader.dataset
+        model_kwargs = {
+            'input_dim': test_ds.tensors[0].shape[1],
+            'num_classes': int(torch.unique(test_ds.tensors[1]).numel()),
+        }
 
     # No DP config
     dp_config = create_dp_config(
@@ -69,16 +77,18 @@ def main():
         client_dataloaders=client_dataloaders,
         local_epochs=args.local_epochs,
         dp_config=dp_config,
-        device=device
+        device=device,
+        model_kwargs=model_kwargs
     )
 
-    eval_fn = get_evaluate_fn(args.model, test_loader, device)
+    eval_fn = get_evaluate_fn(args.model, test_loader, device, model_kwargs=model_kwargs)
     
     strategy = FedSymptomStrategy(
         use_fedprox=args.use_fedprox,
         mu=args.mu,
         track_communication=True,
         checkpoint_dir=str(out_dir / "checkpoints_nodp"),
+        model_name=args.model,
         fraction_fit=1.0,
         fraction_evaluate=1.0,
         min_fit_clients=args.num_clients,
@@ -95,14 +105,14 @@ def main():
     )
 
     results_file = out_dir / f"results_nodp_{args.model}.json"
+    res_dict = {
+        "losses_distributed": history.losses_distributed,
+        "metrics_distributed": history.metrics_distributed,
+        "losses_centralized": history.losses_centralized,
+        "metrics_centralized": history.metrics_centralized
+    }
     with open(results_file, 'w') as f:
-        res_dict = {
-            "losses_distributed": history.losses_distributed,
-            "metrics_distributed": history.metrics_distributed,
-            "losses_centralized": history.losses_centralized,
-            "metrics_centralized": history.metrics_centralized
-        }
-        f.write(str(res_dict))
+        json.dump(res_dict, f, indent=2, default=str)
 
     print(f"No-DP baseline complete. Results saved to {out_dir}")
 
