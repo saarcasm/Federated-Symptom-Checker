@@ -1,4 +1,17 @@
-const API_BASE = 'http://localhost:8000';
+// This static site has no backend deployed with it -- Vercel (and GitHub
+// Pages, Netlify, etc.) only serve static files and cannot run the Python/
+// FastAPI server in server/api_server.py. On a real deployment, host that
+// server somewhere that can run Python (Render, Railway, Fly.io, a VM...)
+// and set its public URL here. Until that's done, API_BASE below only
+// works for visitors running the backend on their own machine (the
+// "Quick Start" flow in the README), not for the public hosted site.
+const API_BASE = (() => {
+    const configured = window.FEDHEALTH_API_BASE; // set this in index.html for a real deployment
+    if (configured) return configured;
+    const { hostname, protocol } = window.location;
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+    return isLocal ? `${protocol}//${hostname}:8000` : 'http://localhost:8000';
+})();
 
 class ApiClient {
     static async fetchWithRetry(url, options = {}, retries = 1) {
