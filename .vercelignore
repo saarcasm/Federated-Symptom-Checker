@@ -5,3 +5,11 @@ benchmarks
 tests
 .pytest_cache
 *.pdf
+server
+data
+models
+federated
+docs
+deployment
+requirements.txt
+pyproject.toml
