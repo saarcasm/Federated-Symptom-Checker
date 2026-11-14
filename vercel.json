@@ -1,3 +1,6 @@
 {
-  "outputDirectory": "client-app"
+  "framework": null,
+  "outputDirectory": "client-app",
+  "installCommand": "echo 'No install step required'",
+  "buildCommand": "echo 'No build step required'"
 }
